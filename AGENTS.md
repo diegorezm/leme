@@ -207,6 +207,8 @@ cargo clippy --all-targets -- -D warnings   # lint
 cargo build --release                       # optimized build -> target/release/leme
 ```
 
+From WSL, `scripts/run-windows.sh [--release] [file.pdf]` builds the Windows exe with `cargo-xwin` (`cargo install cargo-xwin --locked`, `rustup target add x86_64-pc-windows-msvc`, and clang/lld/llvm) and opens it in Windows, so Rust is only needed on Linux.
+
 Run `fmt`, `clippy`, `test`, and `build` before every commit.
 
 ## 13. Git and GitHub workflow
