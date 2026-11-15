@@ -709,7 +709,7 @@ export component StartScreen inherits Rectangle {
                                         text: "Enter";
                                     }
                                 }
-                                Text {
+                                if subject.detail != "": Text {
                                     text: subject.detail;
                                     color: Theme.text-muted;
                                     font-size: Theme.font-size-small;

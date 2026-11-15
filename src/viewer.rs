@@ -974,7 +974,7 @@ impl Viewer {
                             status: -1,
                             header: header.into(),
                             page: trf("p. {}", &[&self.page_name(a.page)]).into(),
-                            quote: truncate(&a.text, 160).into(),
+                            quote: truncate(&unhyphenated(&a.text), 160).into(),
                             note: truncate(&a.note, 240).into(),
                             ..Default::default()
                         };
@@ -1115,6 +1115,9 @@ impl Viewer {
             .enumerate()
             .filter_map(|(i, item)| Some((i, item.page?)))
             .filter(|(_, start)| *start <= page)
+            // Of several starting on the same page, the first: it is the
+            // one at the top, where reading resumes.
+            .rev()
             .max_by_key(|(_, start)| *start)
             .map(|(i, _)| i)
     }
@@ -1549,7 +1552,7 @@ impl Viewer {
         self.note_target = Some(id);
         self.popup = Popup::None;
         PopupOutcome::EditNote {
-            quote: a.text.clone(),
+            quote: unhyphenated(&a.text),
             note: a.note.clone(),
             color: annotations::color_index(&a.color).unwrap_or(0),
             page: self.page_name(a.page),
@@ -1932,6 +1935,12 @@ fn toggle_filter(used: &[&str], hidden: &HashSet<String>, picked: &str) -> HashS
     hidden
 }
 
+/// Selected text as a quote: PDFium marks a word hyphenated across lines
+/// with U+0002, which would show as a box; the word is joined back.
+pub fn unhyphenated(text: &str) -> String {
+    text.replace('\u{2}', "")
+}
+
 /// Shortens text to `max` characters, on a char boundary, with an ellipsis.
 fn truncate(text: &str, max: usize) -> String {
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -1975,6 +1984,15 @@ pub fn ui_int(value: usize) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quotes_join_hyphenated_words() {
+        assert_eq!(
+            unhyphenated("vali\u{2}dade e termi\u{2}nação"),
+            "validade e terminação"
+        );
+        assert_eq!(unhyphenated("bem-vindo"), "bem-vindo");
+    }
 
     #[test]
     fn notes_filter_solos_then_toggles() {

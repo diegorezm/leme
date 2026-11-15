@@ -1432,7 +1432,8 @@ impl App {
         if self.session_hits.len() >= MAX_SESSION_HITS {
             return;
         }
-        self.session_hits.push((path, page, snippet, count));
+        self.session_hits
+            .push((path, page, crate::viewer::unhyphenated(&snippet), count));
         self.update_search_hits();
     }
 
