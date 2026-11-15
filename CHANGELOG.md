@@ -2,6 +2,19 @@
 
 All notable changes to Leme (called dpdf until 1.1.0). Versions follow [Semantic Versioning](https://semver.org/).
 
+## 1.2.1 — 2026-11-15
+
+### Changed
+
+- **One window.** Opening a PDF while Leme is running adds it as a tab to the
+  current session and brings the window forward, instead of starting a
+  second Leme.
+
+### Added
+
+- **Linux support (from source).** Leme builds and runs on Linux: settings in
+  `~/.config/leme`, caches in `~/.cache/leme`. No Linux release yet.
+
 ## 1.2.0 — 2026-11-11
 
 ### Changed
