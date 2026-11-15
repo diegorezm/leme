@@ -143,6 +143,7 @@ src/
   export.rs       // pure exports: section summary, Anki TSV, CSV
   study.rs        // study time from activity, per day and document (study.txt)
   config.rs       // config.toml + theme files
+  instance.rs     // single instance: later launches send their files to the running Leme
   i18n.rs         // interface language: tr()/trf() for Rust text, from the same .po Slint bundles
   store.rs        // reading history and last session (state.txt)
   nav.rs          // pure page navigation and page-number parsing
