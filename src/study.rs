@@ -187,6 +187,8 @@ fn local_offset() -> i64 {
             return 0;
         }
     }
+    // c_long is i64 on 64-bit Linux but not on every unix.
+    #[allow(clippy::useless_conversion)]
     i64::from(tm.gmtoff)
 }
 
