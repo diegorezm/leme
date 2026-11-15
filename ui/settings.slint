@@ -1,32 +1,23 @@
 import { Theme } from "theme.slint";
 import { KeyRow, ThemeCard, HighlightRow } from "structs.slint";
-import { Toggle, Select, Button, TextButton, Field, Icon } from "widgets.slint";
+import { Toggle, Select, Segmented, Button, QuietButton, Field, Icon, Kbd, Label } from "widgets.slint";
 
 component NavItem inherits Rectangle {
     in property <string> text;
-    in property <string> icon;
     in property <bool> active;
     callback clicked();
 
     height: 34px;
     border-radius: Theme.radius;
-    background: root.active ? Theme.accent.with-alpha(0.16) : touch.has-hover ? Theme.hover : transparent;
+    background: root.active ? Theme.raised : touch.has-hover ? Theme.hover : transparent;
 
-    HorizontalLayout {
-        padding-left: 10px;
-        spacing: 10px;
-
-        Icon {
-            y: (parent.height - self.height) / 2;
-            name: root.icon;
-            color: root.active ? Theme.accent : Theme.text-muted;
-        }
-        Text {
-            text: root.text;
-            color: root.active ? Theme.text : Theme.text-muted;
-            font-size: Theme.font-size;
-            vertical-alignment: center;
-        }
+    Text {
+        x: 12px;
+        width: parent.width - 24px;
+        text: root.text;
+        color: root.active || touch.has-hover ? Theme.text : Theme.text-muted;
+        font-size: Theme.font-size;
+        overflow: elide;
     }
 
     touch := TouchArea {
@@ -37,56 +28,47 @@ component NavItem inherits Rectangle {
     }
 }
 
-component NavGroup inherits Text {
-    color: Theme.text-muted;
-    font-size: Theme.font-size-small;
-    height: 28px;
-    vertical-alignment: bottom;
-    x: 10px;
-}
+// A group of settings under a small heading.
+component Group inherits VerticalLayout {
+    in property <string> title;
 
-component SectionTitle inherits Text {
-    color: Theme.text;
-    font-size: Theme.font-size-large;
-    font-weight: 600;
-}
-
-// A bordered group of rows.
-component Card inherits Rectangle {
-    border-radius: Theme.radius + 4px;
-    border-width: 1px;
-    border-color: Theme.border;
-    background: Theme.surface;
-
-    VerticalLayout {
-        @children
+    Label {
+        height: 28px;
+        vertical-alignment: top;
+        label: root.title;
     }
+    @children
 }
 
-// One setting: title and description on the left, a control on the right.
+// One setting: title and description on the left, a control on the right,
+// ruled off from the one above.
 component Row inherits Rectangle {
     in property <string> title;
     in property <string> description;
-    in property <bool> last;
 
-    min-height: 60px;
+    min-height: 52px;
+
+    Rectangle {
+        y: 0;
+        height: 1px;
+        background: Theme.border;
+    }
 
     HorizontalLayout {
-        padding-left: 16px;
-        padding-right: 16px;
-        padding-top: 12px;
-        padding-bottom: 12px;
-        spacing: Theme.spacing * 2;
+        padding-top: 9px;
+        padding-bottom: 8px;
+        spacing: 24px;
 
         VerticalLayout {
             alignment: center;
-            spacing: 3px;
+            spacing: 2px;
             horizontal-stretch: 1;
 
             Text {
                 text: root.title;
                 color: Theme.text;
                 font-size: Theme.font-size;
+                wrap: word-wrap;
             }
             if root.description != "": Text {
                 text: root.description;
@@ -102,83 +84,115 @@ component Row inherits Rectangle {
             @children
         }
     }
-
-    if !root.last: Rectangle {
-        y: parent.height - 1px;
-        height: 1px;
-        background: Theme.border;
-    }
 }
 
-// Themes as cards painted in their own colors.
-component ThemeGrid inherits Rectangle {
-    in property <[ThemeCard]> themes;
-    in property <string> current;
-    callback picked(string);
+// A theme, previewed as the window it makes: header, accent, and a lit
+// page with a highlight.
+component ThemePreview inherits Rectangle {
+    in property <ThemeCard> theme;
+    in property <bool> current;
+    callback picked();
 
-    property <int> columns: root.width > 560px ? 3 : 2;
-    property <length> gap: 10px;
-    property <length> card-width: (root.width - 28px - (root.columns - 1) * root.gap) / root.columns;
-    property <length> card-height: 50px;
+    VerticalLayout {
+        spacing: 8px;
 
-    height: ceil(root.themes.length / root.columns) * (root.card-height + root.gap) - root.gap + 28px;
-    border-radius: Theme.radius + 4px;
-    border-width: 1px;
-    border-color: Theme.border;
-    background: Theme.surface;
+        Rectangle {
+            height: 112px;
+            border-radius: Theme.radius + 2px;
+            background: root.theme.background;
+            clip: true;
 
-    for theme[i] in root.themes: Rectangle {
-        x: 14px + mod(i, root.columns) * (root.card-width + root.gap);
-        y: 14px + floor(i / root.columns) * (root.card-height + root.gap);
-        width: root.card-width;
-        height: root.card-height;
-        border-radius: Theme.radius + 2px;
-        background: theme.background;
-        border-width: theme.name == root.current ? 2px : 1px;
-        border-color: theme.name == root.current ? Theme.accent : touch.has-hover ? Theme.text-muted : theme.border;
+            Rectangle {
+                y: 0;
+                height: 14px;
+                background: root.theme.surface;
+            }
+            Rectangle {
+                x: 0;
+                y: 14px;
+                width: parent.width * 0.46;
+                height: 1px;
+                background: root.theme.accent;
+            }
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: 26px;
+                width: 92px;
+                height: 100px;
+                background: root.theme.page;
+
+                for line[i] in [0.6, 1, 1, 1, 0.8]: Rectangle {
+                    x: 10px;
+                    y: 12px + i * 8px;
+                    width: (parent.width - 20px) * line;
+                    height: 2px;
+                    background: i == 3 ? root.theme.highlight : root.theme.ink;
+                    opacity: i == 3 ? 1 : 0.55;
+                }
+            }
+            // Drawn last, over the clipped corners.
+            Rectangle {
+                border-radius: Theme.radius + 2px;
+                border-width: root.current ? 2px : 1px;
+                border-color: root.current ? Theme.accent : touch.has-hover ? Theme.text-muted : root.theme.border;
+            }
+        }
 
         HorizontalLayout {
-            padding-left: 14px;
-            padding-right: 14px;
-            spacing: 5px;
+            spacing: 6px;
 
+            if root.current: Icon {
+                y: (parent.height - self.height) / 2;
+                name: "check";
+                color: Theme.accent;
+            }
             Text {
-                text: theme.custom ? theme.name + @tr("  ·  custom") : theme.name;
-                color: theme.text;
+                text: root.theme.name;
+                color: Theme.text;
                 font-size: Theme.font-size;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.theme.detail == "" ? "" : "· " + root.theme.detail;
+                color: Theme.text-muted;
+                font-size: Theme.font-size-small;
                 vertical-alignment: center;
                 overflow: elide;
                 horizontal-stretch: 1;
             }
-            for dot in [theme.dot1, theme.dot2, theme.dot3]: Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: 10px;
-                height: 10px;
-                border-radius: 5px;
-                background: dot;
-            }
         }
+    }
 
-        touch := TouchArea {
-            mouse-cursor: pointer;
-            clicked => {
-                root.picked(theme.name);
-            }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.picked();
         }
     }
 }
 
 export component SettingsView inherits Rectangle {
+    // "general", "reading", "appearance" (or "theme", shown with it),
+    // "keys", "files", or "about".
     in-out property <string> section: "general";
+    // The house themes, previewed; the rest are listed by name.
     in property <[ThemeCard]> theme-cards;
+    in property <[string]> other-themes;
+    // The current theme when it is one of the rest, else a prompt.
+    in property <string> other-theme;
     in property <string> theme;
+    // "original", "paper", or "inverted".
     in property <string> page-colors;
     in property <[string]> font-options;
     in property <string> font-name;
     in property <int> font-size;
+    // "Compact", "Comfortable", or "Spacious".
     in property <string> density;
+    // "Sharp", "Rounded", or "Round".
     in property <string> corners;
+    // "Small", "Medium", or "Large".
     in property <string> thumbnail-size;
+    // "Fit width" or "Fit page".
     in property <string> default-zoom;
     in property <bool> restore-session;
     in property <bool> sidebar;
@@ -205,25 +219,28 @@ export component SettingsView inherits Rectangle {
     callback searched(string);
     callback close();
 
+    property <bool> appearance: root.section == "appearance" || root.section == "theme";
+
     background: Theme.background;
 
     HorizontalLayout {
         // Navigation.
         Rectangle {
-            width: 230px;
+            width: 240px;
             background: Theme.surface;
 
             VerticalLayout {
                 padding: 12px;
+                padding-top: 16px;
+                padding-bottom: 16px;
                 spacing: 2px;
 
                 // Search.
                 Rectangle {
-                    height: 36px;
-                    border-radius: Theme.radius + 2px;
+                    height: 34px;
+                    border-radius: Theme.radius;
                     border-width: 1px;
                     border-color: search.has-focus ? Theme.accent : Theme.border;
-                    background: Theme.background;
 
                     HorizontalLayout {
                         padding-left: 10px;
@@ -236,6 +253,7 @@ export component SettingsView inherits Rectangle {
                         }
                         search := Field {
                             horizontal-stretch: 1;
+                            font-size: Theme.font-size-ui;
                             edited => {
                                 root.searched(self.text);
                             }
@@ -243,67 +261,48 @@ export component SettingsView inherits Rectangle {
                     }
 
                     if search.text == "": Text {
-                        x: 36px;
+                        x: 32px;
+                        width: parent.width - 40px;
                         text: @tr("Search settings");
                         color: Theme.text-muted;
-                        font-size: Theme.font-size;
+                        font-size: Theme.font-size-ui;
+                        overflow: elide;
                     }
                 }
                 Rectangle {
-                    height: 8px;
+                    height: 10px;
                 }
 
                 if root.show-general: NavItem {
                     text: @tr("General");
-                    icon: "general";
                     active: root.section == "general";
                     clicked => {
                         root.section = "general";
                     }
                 }
                 if root.show-reading: NavItem {
-                    text: @tr("Reading");
-                    icon: "reading";
+                    text: @tr("Reading and study");
                     active: root.section == "reading";
                     clicked => {
                         root.section = "reading";
                     }
                 }
-
-                if root.show-theme || root.show-appearance: NavGroup {
-                    text: @tr("Visual");
-                }
-                if root.show-theme: NavItem {
-                    text: @tr("Theme");
-                    icon: "theme";
-                    active: root.section == "theme";
-                    clicked => {
-                        root.section = "theme";
-                    }
-                }
-                if root.show-appearance: NavItem {
+                if root.show-theme || root.show-appearance: NavItem {
                     text: @tr("Appearance");
-                    icon: "appearance";
-                    active: root.section == "appearance";
+                    active: root.appearance;
                     clicked => {
                         root.section = "appearance";
                     }
                 }
-
-                if root.show-keys || root.show-files: NavGroup {
-                    text: @tr("App");
-                }
                 if root.show-keys: NavItem {
-                    text: @tr("Keybindings");
-                    icon: "keys";
+                    text: @tr("Keys");
                     active: root.section == "keys";
                     clicked => {
                         root.section = "keys";
                     }
                 }
                 if root.show-files: NavItem {
-                    text: @tr("Configuration files");
-                    icon: "file";
+                    text: @tr("Files");
                     active: root.section == "files";
                     clicked => {
                         root.section = "files";
@@ -314,24 +313,11 @@ export component SettingsView inherits Rectangle {
                     vertical-stretch: 1;
                 }
 
-                // Version, which also opens About.
-                Rectangle {
-                    height: 28px;
-                    border-radius: Theme.radius;
-                    background: about.has-hover ? Theme.hover : transparent;
-
-                    Text {
-                        x: 10px;
-                        text: "Leme v\{root.version}";
-                        color: root.section == "about" ? Theme.accent : Theme.text-muted;
-                        font-size: Theme.font-size-small;
-                    }
-
-                    about := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.section = "about";
-                        }
+                NavItem {
+                    text: @tr("About Leme");
+                    active: root.section == "about";
+                    clicked => {
+                        root.section = "about";
                     }
                 }
             }
@@ -344,65 +330,42 @@ export component SettingsView inherits Rectangle {
         }
 
         VerticalLayout {
-            // Breadcrumb bar.
-            Rectangle {
-                height: 52px;
-
-                HorizontalLayout {
-                    padding-left: 28px;
-                    padding-right: 12px;
-                    spacing: 8px;
-
-                    Text {
-                        text: @tr("Settings  /");
-                        color: Theme.text-muted;
-                        font-size: Theme.font-size;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        text: root.section == "general" ? @tr("General") : root.section == "reading" ? @tr("Reading") : root.section == "theme" ? @tr("Theme") : root.section == "appearance" ? @tr("Appearance") : root.section == "keys" ? @tr("Keybindings") : root.section == "files" ? @tr("Configuration files") : @tr("About");
-                        color: Theme.text;
-                        font-size: Theme.font-size;
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
-                    }
-                    TextButton {
-                        y: (parent.height - self.height) / 2;
-                        text: @tr("Restore defaults");
-                        clicked => {
-                            root.set("reset", "");
-                        }
-                    }
-                    TextButton {
-                        y: (parent.height - self.height) / 2;
-                        text: "×";
-                        font-size: Theme.font-size-large;
-                        clicked => {
-                            root.close();
-                        }
-                    }
-                }
-
-                Rectangle {
-                    y: parent.height - 1px;
-                    height: 1px;
-                    background: Theme.border;
-                }
-            }
-
             Flickable {
+                vertical-stretch: 1;
+                content-width: self.width;
                 content-height: body.preferred-height;
 
                 body := VerticalLayout {
-                    padding: 28px;
-                    padding-top: 22px;
-                    spacing: Theme.spacing;
+                    width: min(parent.width, 872px);
+                    padding-left: 48px;
+                    padding-right: 48px;
+                    padding-top: 32px;
+                    padding-bottom: 32px;
+                    spacing: 28px;
                     alignment: start;
+
+                    HorizontalLayout {
+                        Text {
+                            text: root.section == "general" ? @tr("General") : root.section == "reading" ? @tr("Reading and study") : root.appearance ? @tr("Appearance") : root.section == "keys" ? @tr("Keys") : root.section == "files" ? @tr("Files") : @tr("About Leme");
+                            color: Theme.text;
+                            font-size: Theme.font-size-title;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        QuietButton {
+                            y: (parent.height - self.height) / 2;
+                            text: @tr("Restore defaults");
+                            clicked => {
+                                root.set("reset", "");
+                            }
+                        }
+                    }
 
                     if root.problems != "": Rectangle {
                         border-radius: Theme.radius;
                         border-width: 1px;
-                        border-color: Theme.match-current;
+                        border-color: Theme.accent;
                         height: problem-text.preferred-height + 20px;
 
                         problem-text := Text {
@@ -415,498 +378,510 @@ export component SettingsView inherits Rectangle {
                         }
                     }
 
-                    if root.section == "general": VerticalLayout {
-                        spacing: Theme.spacing;
+                    if root.section == "general": Group {
+                        title: @tr("Language");
 
-                        SectionTitle {
-                            text: @tr("Language");
-                        }
-                        Card {
-                            Row {
-                                title: @tr("Interface language");
-                                description: @tr("Menus, messages, and exports.");
-                                last: true;
-                                Select {
-                                    options: root.language-options;
-                                    value: root.language;
-                                    selected(value) => {
-                                        root.set("language", value);
-                                    }
+                        Row {
+                            title: @tr("Interface language");
+                            description: @tr("Menus, messages, and exports.");
+                            Select {
+                                options: root.language-options;
+                                value: root.language;
+                                selected(value) => {
+                                    root.set("language", value);
                                 }
                             }
                         }
+                    }
+                    if root.section == "general": Group {
+                        title: @tr("Session");
 
-                        SectionTitle {
-                            text: @tr("Session");
-                        }
-                        Card {
-                            Row {
-                                title: @tr("Reattach on startup");
-                                description: @tr("Reopen the last session's document at the page and zoom you left it, like tmux attach.");
-                                last: true;
-                                Toggle {
-                                    checked: root.restore-session;
-                                    toggled => {
-                                        root.set("restore-session", root.restore-session ? "false" : "true");
-                                    }
+                        Row {
+                            title: @tr("Reattach on startup");
+                            description: @tr("Reopen the last session's document at the page and zoom you left it, like tmux attach.");
+                            Toggle {
+                                checked: root.restore-session;
+                                toggled => {
+                                    root.set("restore-session", root.restore-session ? "false" : "true");
                                 }
                             }
                         }
                     }
 
-                    if root.section == "reading": VerticalLayout {
-                        spacing: Theme.spacing;
+                    if root.section == "reading": Group {
+                        title: @tr("Layout");
 
-                        SectionTitle {
-                            text: @tr("Layout");
-                        }
-                        Card {
-                            Row {
-                                title: @tr("Default zoom");
-                                description: @tr("For documents you haven't opened before.");
-                                Select {
-                                    options: [@tr("Fit width"), @tr("Fit page")];
-                                    value: root.default-zoom;
-                                    selected(value) => {
-                                        root.set("default-zoom", value);
-                                    }
-                                }
-                            }
-                            Row {
-                                title: @tr("Thumbnail sidebar");
-                                description: @tr("Show page thumbnails next to the document.");
-                                last: true;
-                                Toggle {
-                                    checked: root.sidebar;
-                                    toggled => {
-                                        root.set("sidebar", root.sidebar ? "false" : "true");
-                                    }
+                        Row {
+                            title: @tr("Default zoom");
+                            description: @tr("For documents you haven't opened before.");
+                            Segmented {
+                                options: [{ id: "Fit width", label: @tr("Fit width") }, { id: "Fit page", label: @tr("Fit page") }];
+                                value: root.default-zoom;
+                                selected(value) => {
+                                    root.set("default-zoom", value);
                                 }
                             }
                         }
-
-                        SectionTitle {
-                            text: @tr("Highlights");
+                        Row {
+                            title: @tr("Side panel");
+                            description: @tr("Show pages, outline, or notes next to the document.");
+                            Toggle {
+                                checked: root.sidebar;
+                                toggled => {
+                                    root.set("sidebar", root.sidebar ? "false" : "true");
+                                }
+                            }
                         }
+                    }
+                    if root.section == "reading": Group {
+                        title: @tr("Highlights");
+
                         Text {
                             text: @tr("What each color means, shown in the notes panel and in exports. Keys 1–5 pick them in this order.");
                             color: Theme.text-muted;
                             font-size: Theme.font-size-small;
                             wrap: word-wrap;
                         }
-                        Card {
-                            for h[i] in root.highlights: Rectangle {
-                                height: highlight-row.preferred-height;
+                        Rectangle {
+                            height: 10px;
+                        }
+                        for h[i] in root.highlights: Rectangle {
+                            height: highlight-row.preferred-height;
 
-                                highlight-row := VerticalLayout {
-                                    padding-left: 16px;
-                                    padding-right: 16px;
-                                    padding-top: 10px;
-                                    padding-bottom: 10px;
-                                    spacing: 8px;
+                            highlight-row := VerticalLayout {
+                                padding-left: 0px;
+                                padding-right: 0px;
+                                padding-top: 10px;
+                                padding-bottom: 10px;
+                                spacing: 8px;
 
-                                    HorizontalLayout {
-                                        spacing: 12px;
+                                HorizontalLayout {
+                                    spacing: 12px;
+
+                                    Text {
+                                        text: "";
+                                        width: 0px;
+                                    }
+                                    Rectangle {
+                                        y: (parent.height - self.height) / 2;
+                                        width: 22px;
+                                        height: 22px;
+                                        border-radius: 11px;
+                                        background: h.color;
 
                                         Text {
                                             text: i + 1;
-                                            color: Theme.text-muted;
-                                            font-size: Theme.font-size-small;
-                                            vertical-alignment: center;
-                                            width: 10px;
+                                            color: Theme.ink;
+                                            font-size: Theme.font-size-label;
+                                            font-weight: 600;
                                         }
-                                        Rectangle {
-                                            y: (parent.height - self.height) / 2;
-                                            width: 18px;
-                                            height: 18px;
-                                            border-radius: 9px;
-                                            background: h.color;
-                                        }
-                                        // Name: saved on Enter or when leaving the field.
-                                        Rectangle {
-                                            height: 30px;
-                                            horizontal-stretch: 1;
-                                            border-radius: Theme.radius;
-                                            border-width: 1px;
-                                            border-color: name-input.has-focus ? Theme.accent : Theme.border;
+                                    }
+                                    // Name: saved on Enter or when leaving the field.
+                                    Rectangle {
+                                        height: 30px;
+                                        horizontal-stretch: 1;
+                                        border-radius: Theme.radius;
+                                        border-width: 1px;
+                                        border-color: name-input.has-focus ? Theme.accent : Theme.border;
 
-                                            name-input := Field {
-                                                x: 10px;
-                                                width: parent.width - 20px;
-                                                text: h.name;
-                                                accepted => {
+                                        name-input := Field {
+                                            x: 10px;
+                                            width: parent.width - 20px;
+                                            text: h.name;
+                                            accepted => {
+                                                root.set("color-name", h.key + "=" + self.text);
+                                            }
+                                            changed has-focus => {
+                                                if !self.has-focus && self.text != h.name {
                                                     root.set("color-name", h.key + "=" + self.text);
                                                 }
-                                                changed has-focus => {
-                                                    if !self.has-focus && self.text != h.name {
-                                                        root.set("color-name", h.key + "=" + self.text);
-                                                    }
-                                                }
                                             }
                                         }
-                                        // Shade as hex.
-                                        Rectangle {
-                                            height: 30px;
-                                            width: 90px;
-                                            border-radius: Theme.radius;
-                                            border-width: 1px;
-                                            border-color: hex-input.has-focus ? Theme.accent : Theme.border;
+                                    }
+                                    // Shade as hex.
+                                    Rectangle {
+                                        height: 30px;
+                                        width: 90px;
+                                        border-radius: Theme.radius;
+                                        border-width: 1px;
+                                        border-color: hex-input.has-focus ? Theme.accent : Theme.border;
 
-                                            hex-input := Field {
-                                                x: 10px;
-                                                width: parent.width - 20px;
-                                                text: h.hex;
-                                                font-family: "Cascadia Mono, Consolas";
-                                                font-size: Theme.font-size-small;
-                                                accepted => {
+                                        hex-input := Field {
+                                            x: 10px;
+                                            width: parent.width - 20px;
+                                            text: h.hex;
+                                                                                        font-size: Theme.font-size-small;
+                                            accepted => {
+                                                root.set("color-hex", h.key + "=" + self.text);
+                                            }
+                                            changed has-focus => {
+                                                if !self.has-focus && self.text != h.hex {
                                                     root.set("color-hex", h.key + "=" + self.text);
                                                 }
-                                                changed has-focus => {
-                                                    if !self.has-focus && self.text != h.hex {
-                                                        root.set("color-hex", h.key + "=" + self.text);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // Preset shades.
-                                    HorizontalLayout {
-                                        padding-left: 52px;
-                                        spacing: 6px;
-                                        alignment: start;
-
-                                        for p[pi] in root.presets: Rectangle {
-                                            width: 16px;
-                                            height: 16px;
-                                            border-radius: 8px;
-                                            background: p;
-                                            border-width: preset-touch.has-hover || p == h.color ? 2px : 0;
-                                            border-color: Theme.text;
-
-                                            preset-touch := TouchArea {
-                                                mouse-cursor: pointer;
-                                                clicked => {
-                                                    root.set("color-hex", h.key + "=preset:" + pi);
-                                                }
-                                            }
-                                        }
-                                        TextButton {
-                                            text: @tr("Default");
-                                            font-size: Theme.font-size-small;
-                                            clicked => {
-                                                root.set("color-hex", h.key + "=reset");
                                             }
                                         }
                                     }
                                 }
 
-                                if i < root.highlights.length - 1: Rectangle {
-                                    y: parent.height - 1px;
-                                    height: 1px;
-                                    background: Theme.border;
-                                }
-                            }
-                        }
-
-                        SectionTitle {
-                            text: @tr("Study");
-                        }
-                        Card {
-                            Row {
-                                title: @tr("Study timer");
-                                description: @tr("Shows today's reading time in the header and keeps it per day and document. Off, nothing is counted or shown.");
-                                last: true;
-                                Toggle {
-                                    checked: root.study-timer;
-                                    toggled => {
-                                        root.set("study-timer", root.study-timer ? "false" : "true");
-                                    }
-                                }
-                            }
-                        }
-
-                        SectionTitle {
-                            text: @tr("Keyboard");
-                        }
-                        Card {
-                            Row {
-                                title: @tr("Vim keys");
-                                description: @tr("j/k scroll, gg/G first/last page, Ctrl+D/U half screen, / search, n/N matches, : command palette, y copy.");
-                                last: true;
-                                Toggle {
-                                    checked: root.vim;
-                                    toggled => {
-                                        root.set("vim", root.vim ? "false" : "true");
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if root.section == "theme": VerticalLayout {
-                        spacing: Theme.spacing;
-
-                        SectionTitle {
-                            text: @tr("Theme");
-                        }
-                        ThemeGrid {
-                            themes: root.theme-cards;
-                            current: root.theme;
-                            picked(name) => {
-                                root.set("theme", name);
-                            }
-                        }
-
-                        SectionTitle {
-                            text: @tr("Your themes");
-                        }
-                        Card {
-                            Row {
-                                title: @tr("Reload themes");
-                                description: @tr("Add .toml files to the themes folder.");
-                                last: true;
+                                // Preset shades.
                                 HorizontalLayout {
+                                    padding-left: 34px;
                                     spacing: 6px;
+                                    alignment: start;
 
-                                    Button {
-                                        text: @tr("Open folder");
-                                        clicked => {
-                                            root.set("open-themes", "");
+                                    for p[pi] in root.presets: Rectangle {
+                                        width: 16px;
+                                        height: 16px;
+                                        border-radius: 8px;
+                                        background: p;
+                                        border-width: preset-touch.has-hover || p == h.color ? 2px : 0;
+                                        border-color: Theme.text;
+
+                                        preset-touch := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => {
+                                                root.set("color-hex", h.key + "=preset:" + pi);
+                                            }
                                         }
                                     }
-                                    Button {
-                                        text: @tr("Reload");
+                                    QuietButton {
+                                        height: 20px;
+                                        text: @tr("Default");
+                                        font-size: Theme.font-size-small;
                                         clicked => {
-                                            root.set("reload", "");
+                                            root.set("color-hex", h.key + "=reset");
                                         }
                                     }
+                                }
+                            }
+
+                            Rectangle {
+                                y: 0;
+                                height: 1px;
+                                background: Theme.border;
+                            }
+                        }
+                    }
+                    if root.section == "reading": Group {
+                        title: @tr("Study");
+
+                        Row {
+                            title: @tr("Study timer");
+                            description: @tr("Shows today's reading time in the header and keeps it per day and document. Off, nothing is counted or shown.");
+                            Toggle {
+                                checked: root.study-timer;
+                                toggled => {
+                                    root.set("study-timer", root.study-timer ? "false" : "true");
+                                }
+                            }
+                        }
+                    }
+                    if root.section == "reading": Group {
+                        title: @tr("Keyboard");
+
+                        Row {
+                            title: @tr("Vim keys");
+                            description: @tr("j/k scroll, gg/G first/last page, Ctrl+D/U half screen, / search, n/N matches, : command palette, y copy.");
+                            Toggle {
+                                checked: root.vim;
+                                toggled => {
+                                    root.set("vim", root.vim ? "false" : "true");
                                 }
                             }
                         }
                     }
 
-                    if root.section == "appearance": VerticalLayout {
-                        spacing: Theme.spacing;
+                    if root.appearance: VerticalLayout {
+                        spacing: 12px;
 
-                        SectionTitle {
-                            text: @tr("Interface");
+                        Label {
+                            label: @tr("Theme");
                         }
-                        Card {
-                            Row {
-                                title: @tr("Font");
-                                description: @tr("Any installed font also works in config.toml.");
-                                Select {
-                                    options: root.font-options;
-                                    value: root.font-name;
-                                    selected(value) => {
-                                        root.set("font", value);
-                                    }
-                                }
-                            }
-                            Row {
-                                title: @tr("Text size");
-                                HorizontalLayout {
-                                    spacing: 4px;
+                        HorizontalLayout {
+                            spacing: 16px;
 
-                                    Button {
-                                        text: "−";
-                                        clicked => {
-                                            root.set("font-size", "-");
-                                        }
-                                    }
-                                    Text {
-                                        width: 48px;
-                                        text: "\{root.font-size}px";
-                                        color: Theme.text;
-                                        font-size: Theme.font-size;
-                                        vertical-alignment: center;
-                                        horizontal-alignment: center;
-                                    }
-                                    Button {
-                                        text: "+";
-                                        clicked => {
-                                            root.set("font-size", "+");
-                                        }
-                                    }
-                                }
-                            }
-                            Row {
-                                title: @tr("Density");
-                                description: @tr("Spacing and header height.");
-                                Select {
-                                    options: [@tr("Compact"), @tr("Comfortable"), @tr("Spacious")];
-                                    value: root.density;
-                                    selected(value) => {
-                                        root.set("density", value);
-                                    }
-                                }
-                            }
-                            Row {
-                                title: @tr("Corners");
-                                Select {
-                                    options: [@tr("Sharp"), @tr("Rounded"), @tr("Round")];
-                                    value: root.corners;
-                                    selected(value) => {
-                                        root.set("corners", value);
-                                    }
-                                }
-                            }
-                            Row {
-                                title: @tr("Thumbnail size");
-                                last: true;
-                                Select {
-                                    options: [@tr("Small"), @tr("Medium"), @tr("Large")];
-                                    value: root.thumbnail-size;
-                                    selected(value) => {
-                                        root.set("thumbnail-size", value);
-                                    }
+                            for card in root.theme-cards: ThemePreview {
+                                horizontal-stretch: 1;
+                                theme: card;
+                                current: card.name == root.theme;
+                                picked => {
+                                    root.set("theme", card.name);
                                 }
                             }
                         }
+                        HorizontalLayout {
+                            spacing: 12px;
 
-                        SectionTitle {
-                            text: @tr("Pages");
+                            Text {
+                                text: @tr("{} more themes, built in and yours, as .toml files.", root.other-themes.length);
+                                color: Theme.text-muted;
+                                font-size: Theme.font-size-ui;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
+                                horizontal-stretch: 1;
+                            }
+                            Select {
+                                options: root.other-themes;
+                                value: root.other-theme;
+                                selected(value) => {
+                                    root.set("theme", value);
+                                }
+                            }
+                            Button {
+                                text: @tr("Open folder");
+                                clicked => {
+                                    root.set("open-themes", "");
+                                }
+                            }
                         }
-                        Card {
-                            Row {
-                                title: @tr("Page colors");
-                                description: @tr("Inverted turns white pages dark, for reading at night.");
-                                last: true;
-                                Select {
-                                    options: [@tr("Original"), @tr("Inverted")];
-                                    value: root.page-colors;
-                                    selected(value) => {
-                                        root.set("page-colors", value);
-                                    }
+                    }
+                    if root.appearance: Group {
+                        title: @tr("Pages");
+
+                        Row {
+                            title: @tr("Page colors");
+                            description: @tr("Paper tints the PDF's white with the theme's page color, so it doesn't glare at night.");
+                            Segmented {
+                                options: [{ id: "original", label: @tr("Original") }, { id: "paper", label: @tr("Paper") }, { id: "inverted", label: @tr("Inverted") }];
+                                value: root.page-colors;
+                                selected(value) => {
+                                    root.set("page-colors", value);
+                                }
+                            }
+                        }
+                    }
+                    if root.appearance: Group {
+                        title: @tr("Interface");
+
+                        Row {
+                            title: @tr("Font");
+                            description: @tr("Any installed font also works in config.toml.");
+                            Select {
+                                options: root.font-options;
+                                value: root.font-name;
+                                selected(value) => {
+                                    root.set("font", value);
+                                }
+                            }
+                        }
+                        Row {
+                            title: @tr("Text size");
+                            description: @tr("Menus, panels, and the palette.");
+                            Segmented {
+                                options: [{ id: "13", label: "13" }, { id: "14", label: "14" }, { id: "15", label: "15" }, { id: "16", label: "16" }];
+                                value: "\{root.font-size}";
+                                selected(value) => {
+                                    root.set("font-size", value);
+                                }
+                            }
+                        }
+                        Row {
+                            title: @tr("Density");
+                            description: @tr("Spacing and header height.");
+                            Segmented {
+                                options: [{ id: "Compact", label: @tr("Compact") }, { id: "Comfortable", label: @tr("Normal") }, { id: "Spacious", label: @tr("Spacious") }];
+                                value: root.density;
+                                selected(value) => {
+                                    root.set("density", value);
+                                }
+                            }
+                        }
+                        Row {
+                            title: @tr("Corners");
+                            Segmented {
+                                options: [{ id: "Sharp", label: @tr("Sharp") }, { id: "Rounded", label: @tr("Rounded") }, { id: "Round", label: @tr("Round") }];
+                                value: root.corners;
+                                selected(value) => {
+                                    root.set("corners", value);
+                                }
+                            }
+                        }
+                        Row {
+                            title: @tr("Thumbnail size");
+                            Segmented {
+                                options: [{ id: "Small", label: @tr("Small") }, { id: "Medium", label: @tr("Medium") }, { id: "Large", label: @tr("Large") }];
+                                value: root.thumbnail-size;
+                                selected(value) => {
+                                    root.set("thumbnail-size", value);
                                 }
                             }
                         }
                     }
 
                     if root.section == "keys": VerticalLayout {
-                        spacing: Theme.spacing;
-
-                        HorizontalLayout {
-                            SectionTitle {
-                                text: @tr("Keybindings");
-                                vertical-alignment: center;
-                                horizontal-stretch: 1;
-                            }
-                            Button {
-                                text: @tr("Edit in config.toml");
-                                clicked => {
-                                    root.set("open-config", "");
-                                }
-                            }
-                        }
                         Text {
                             text: @tr("Rebind any action under [keys] using the name on the right, e.g.  zoom-in = [\"ctrl+=\", \"z i\"]. An empty list unbinds it.");
                             color: Theme.text-muted;
                             font-size: Theme.font-size-small;
                             wrap: word-wrap;
                         }
-                        Card {
-                            for row[i] in root.keys: Rectangle {
-                                height: 36px;
+                        Rectangle {
+                            height: 16px;
+                        }
+                        for row[i] in root.keys: Rectangle {
+                            height: 36px;
 
-                                HorizontalLayout {
-                                    padding-left: 16px;
-                                    padding-right: 16px;
-                                    spacing: Theme.spacing;
+                            Rectangle {
+                                y: 0;
+                                height: 1px;
+                                background: Theme.border;
+                            }
 
-                                    Text {
-                                        text: row.title;
-                                        color: Theme.text;
-                                        font-size: Theme.font-size;
-                                        vertical-alignment: center;
-                                        horizontal-stretch: 1;
-                                    }
-                                    Text {
-                                        text: row.keys != "" ? row.keys : "—";
-                                        color: row.keys != "" ? Theme.text : Theme.text-muted;
-                                        font-size: Theme.font-size-small;
-                                        font-family: "Consolas";
-                                        vertical-alignment: center;
-                                        horizontal-alignment: right;
-                                    }
-                                    Text {
-                                        width: 150px;
-                                        text: row.name;
-                                        color: Theme.text-muted;
-                                        font-size: Theme.font-size-small;
-                                        font-family: "Consolas";
-                                        vertical-alignment: center;
-                                        horizontal-alignment: right;
-                                    }
+                            HorizontalLayout {
+                                spacing: Theme.spacing;
+
+                                Text {
+                                    text: row.title;
+                                    color: Theme.text;
+                                    font-size: Theme.font-size-ui;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
                                 }
-
-                                if i < root.keys.length - 1: Rectangle {
-                                    y: parent.height - 1px;
-                                    height: 1px;
-                                    background: Theme.border;
+                                Text {
+                                    text: row.keys != "" ? row.keys : "—";
+                                    color: row.keys != "" ? Theme.text : Theme.text-muted;
+                                    font-size: Theme.font-size-small;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: right;
+                                }
+                                Text {
+                                    width: 170px;
+                                    text: row.name;
+                                    color: Theme.text-muted;
+                                    font-size: Theme.font-size-small;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: right;
+                                    overflow: elide;
                                 }
                             }
                         }
                     }
 
-                    if root.section == "files": VerticalLayout {
-                        spacing: Theme.spacing;
+                    if root.section == "files": Group {
+                        title: @tr("Configuration files");
 
-                        SectionTitle {
-                            text: @tr("Configuration files");
-                        }
-                        Card {
-                            Row {
-                                title: "config.toml";
-                                description: @tr("Every setting here, plus keybindings. Changes made in this window are written there too.");
-                                HorizontalLayout {
-                                    spacing: 6px;
+                        Row {
+                            title: "config.toml";
+                            description: @tr("Every setting here, plus keybindings. Changes made in this window are written there too.");
+                            HorizontalLayout {
+                                spacing: 6px;
 
-                                    Button {
-                                        text: @tr("Open");
-                                        clicked => {
-                                            root.set("open-config", "");
-                                        }
-                                    }
-                                    Button {
-                                        text: @tr("Reload");
-                                        clicked => {
-                                            root.set("reload", "");
-                                        }
-                                    }
-                                }
-                            }
-                            Row {
-                                title: @tr("Data folder");
-                                description: root.data-dir + @tr("\nconfig.toml, themes, annotations, and reading history.");
-                                last: true;
                                 Button {
                                     text: @tr("Open");
                                     clicked => {
-                                        root.set("open-data-dir", "");
+                                        root.set("open-config", "");
                                     }
+                                }
+                                Button {
+                                    text: @tr("Reload");
+                                    clicked => {
+                                        root.set("reload", "");
+                                    }
+                                }
+                            }
+                        }
+                        Row {
+                            title: @tr("Themes");
+                            description: @tr("Add .toml files to the themes folder.");
+                            HorizontalLayout {
+                                spacing: 6px;
+
+                                Button {
+                                    text: @tr("Open folder");
+                                    clicked => {
+                                        root.set("open-themes", "");
+                                    }
+                                }
+                                Button {
+                                    text: @tr("Reload");
+                                    clicked => {
+                                        root.set("reload", "");
+                                    }
+                                }
+                            }
+                        }
+                        Row {
+                            title: @tr("Data folder");
+                            description: root.data-dir + @tr("\nconfig.toml, themes, annotations, and reading history.");
+                            Button {
+                                text: @tr("Open");
+                                clicked => {
+                                    root.set("open-data-dir", "");
                                 }
                             }
                         }
                     }
 
-                    if root.section == "about": VerticalLayout {
-                        spacing: Theme.spacing;
+                    if root.section == "about": Group {
+                        title: "Leme \{root.version}";
 
-                        SectionTitle {
-                            text: "Leme \{root.version}";
+                        Row {
+                            title: @tr("A fast, minimal, local-first PDF reader");
+                            description: @tr("Built with Rust, Slint, and PDFium. MIT licensed.");
                         }
-                        Card {
-                            Row {
-                                title: @tr("A fast, minimal, local-first PDF reader");
-                                description: @tr("Built with Rust, Slint, and PDFium. MIT licensed.");
-                            }
-                            Row {
-                                title: @tr("Private by design");
-                                description: @tr("No telemetry, no accounts, no network access. Your notes, settings, and history stay in the data folder.");
-                                last: true;
-                            }
+                        Row {
+                            title: @tr("Private by design");
+                            description: @tr("No telemetry, no accounts, no network access. Your notes, settings, and history stay in the data folder.");
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: Theme.border;
+            }
+            HorizontalLayout {
+                padding-top: 12px;
+                padding-bottom: 12px;
+                padding-left: 48px;
+                padding-right: 48px;
+                spacing: 10px;
+
+                Text {
+                    text: @tr("Everything here is saved to config.toml. Nothing leaves this machine.");
+                    color: Theme.text-muted;
+                    font-size: Theme.font-size-small;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    y: (parent.height - self.height) / 2;
+                    text: @tr("Open config.toml");
+                    clicked => {
+                        root.set("open-config", "");
+                    }
+                }
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: close-hint.preferred-width;
+                    height: 28px;
+                    border-radius: Theme.radius;
+                    background: close-touch.has-hover ? Theme.hover : transparent;
+
+                    close-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.close();
+                        }
+                    }
+
+                    close-hint := HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        spacing: 6px;
+
+                        Kbd {
+                            y: (parent.height - self.height) / 2;
+                            text: "Esc";
+                        }
+                        Text {
+                            text: @tr("close");
+                            color: Theme.text-muted;
+                            font-size: Theme.font-size-small;
+                            vertical-alignment: center;
                         }
                     }
                 }

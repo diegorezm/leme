@@ -43,11 +43,11 @@ With **vim keys** on: `j` `k` `h` `l` scroll, `Ctrl+D` / `Ctrl+U` half screen, `
 
 Leme has a few tools for studying, for exams for example, that stay out of the way when you don't use them.
 
-- **Colors with a meaning.** The five highlight colors have names, shown in the notes panel and in exports: yellow *Important*, green *Case law*, blue *Later*, pink *Definition*, red *Trap*. Rename them and change their shades in Settings → Reading → Highlights (or in `config.toml`, below). Page thumbnails show which colors a page has, and the notes panel can hide colors: click one to toggle it.
+- **Colors with a meaning.** The five highlight colors have names, shown in the notes panel and in exports: ochre *Important* (`1`), vermilion *Doubt* (`2`), verdigris *Definition* (`3`), indigo *Example* (`4`), madder *Review* (`5`). Rename them and change their shades in Settings → Reading and study → Highlights (or in `config.toml`, below). Page thumbnails show which colors a page has, and the notes panel filters by color: from *All*, click a color to see it alone, then click others to add or remove them.
 - **Progress.** In the outline, click the box next to a section (or press `Ctrl+L` in it) to mark it read, then reviewed once and twice. The outline shows how much of the document you've read; the home screen shows it for every tab in the session, with notes and study time.
 - **Export.** `Ctrl+E` exports the notes in the colors the notes panel shows: as a Markdown summary grouped by section and color (or the Obsidian format, grouped by page), as a file Anki imports as cards (*File › Import*; the note is the front, the quote the back, color and document are tags), or as CSV. Reviewing the cards is left to Anki or whatever app you use.
 - **Study time.** The header shows how long you've read today. Time counts while you use Leme (pauses longer than five minutes don't count) and is kept per day and document in `study.txt`. Click it or press `Ctrl+T` to pause. To remove it, turn off Settings → Reading → Study timer (`study_timer = false`); then nothing is counted.
-- **Session search and law articles.** `Ctrl+Shift+F` searches every tab in the session at once, ignoring case and accents (`licitacao` finds *licitação*). In Go to page, `art. 37` jumps to where that article starts.
+- **Session search and law articles.** `Ctrl+Shift+F` (or *All tabs* in the search panel) searches every tab in the session at once, listing the pages found under each document, ignoring case and accents (`licitacao` finds *licitação*). In Go to page, `art. 37` jumps to where that article starts.
 
 ## Customizing
 
@@ -96,6 +96,7 @@ name = "My Theme"
 dark = true             # missing colors fall back to the built-in dark theme
 background = "#101418"
 accent = "#ff9e64"
+page = "#eadfc8"        # the paper: what white becomes with page_colors = "paper"
 ```
 
 After editing, run **Reload config and themes** from the palette.

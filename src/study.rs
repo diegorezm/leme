@@ -158,6 +158,16 @@ pub fn today() -> i64 {
     (now + local_offset()).div_euclid(86_400)
 }
 
+/// The hour of the day on the local clock, 0–23.
+pub fn local_hour() -> u32 {
+    let now = i64::try_from(crate::annotations::now()).unwrap_or(0);
+    hour_of(now + local_offset())
+}
+
+fn hour_of(local_seconds: i64) -> u32 {
+    (local_seconds.rem_euclid(86_400) / 3600) as u32
+}
+
 /// Seconds the local clock is ahead of UTC.
 #[cfg(unix)]
 fn local_offset() -> i64 {
@@ -238,6 +248,15 @@ fn file_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hour_of_local_time() {
+        assert_eq!(hour_of(0), 0);
+        assert_eq!(hour_of(23 * 3600 + 59), 23);
+        assert_eq!(hour_of(86_400 + 7 * 3600), 7);
+        // Before 1970 still lands on a real hour.
+        assert_eq!(hour_of(-3600), 23);
+    }
 
     #[test]
     fn dates_round_trip() {

@@ -1,12 +1,28 @@
 import { Theme } from "theme.slint";
 
+// A floating surface. Flat: depth comes from tone, not from shadows.
 export component Panel inherits Rectangle {
     background: Theme.raised;
-    border-radius: Theme.radius + 2px;
+    border-radius: Theme.radius + 4px;
     border-width: 1px;
     border-color: Theme.border;
-    drop-shadow-blur: 18px;
-    drop-shadow-color: #00000045;
+}
+
+// Dims the window behind a modal overlay; a click dismisses the overlay.
+export component Scrim inherits Rectangle {
+    callback dismissed();
+
+    background: Theme.scrim;
+
+    TouchArea {
+        clicked => {
+            root.dismissed();
+        }
+        // Keeps the wheel from scrolling the document underneath.
+        scroll-event(event) => {
+            accept
+        }
+    }
 }
 
 export component Field inherits TextInput {
@@ -17,23 +33,94 @@ export component Field inherits TextInput {
     single-line: true;
 }
 
-// Quiet text button, used in the header and popups.
-export component TextButton inherits Rectangle {
-    in property <string> text;
-    in property <bool> active;
-    in property <length> font-size: Theme.font-size;
-    callback clicked();
+// A small spaced-out heading above a group: "THEME", "CONTINUE READING".
+export component Label inherits Text {
+    in property <string> label;
 
-    min-width: label.preferred-width + 14px;
-    min-height: 26px;
-    border-radius: Theme.radius;
-    background: touch.has-hover ? Theme.hover : transparent;
+    text: root.label.to-uppercase();
+    color: Theme.text-muted;
+    font-size: Theme.font-size-label;
+    letter-spacing: 0.9px;
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+// A keyboard shortcut label.
+export component Kbd inherits Rectangle {
+    in property <string> text;
+    in property <color> ink: Theme.text-muted;
+    in property <color> outline: Theme.border;
+
+    width: label.preferred-width + 10px;
+    height: 18px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: root.outline;
 
     label := Text {
         text: root.text;
-        color: root.active ? Theme.accent : touch.has-hover ? Theme.text : Theme.text-muted;
-        font-size: root.font-size;
+        color: root.ink;
+        font-size: Theme.font-size-label;
     }
+}
+
+// Line icons drawn as SVG paths on a 16x16 grid, so they don't depend on
+// which symbol fonts are installed.
+export component Icon inherits Path {
+    in property <string> name;
+    in property <color> color: Theme.text-muted;
+
+    width: 14px;
+    height: 14px;
+    viewbox-width: 16;
+    viewbox-height: 16;
+    fill: transparent;
+    stroke: root.color;
+    stroke-width: 1.3px;
+    stroke-line-cap: round;
+    stroke-line-join: round;
+    commands: root.name == "sidebar" ? "M3.5 3h9a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7A1.5 1.5 0 0 1 3.5 3z M6 3v10"
+        : root.name == "session" ? "M8 2L2 5l6 3 6-3-6-3z M2 8l6 3 6-3 M2 11l6 3 6-3"
+        : root.name == "down" ? "M4 6l4 4 4-4"
+        : root.name == "up" ? "M4 10l4-4 4 4"
+        : root.name == "close" ? "M5 5l6 6 M11 5l-6 6"
+        : root.name == "plus" ? "M8 3v10 M3 8h10"
+        : root.name == "minus" ? "M3 8h10"
+        : root.name == "search" ? "M11.5 7a4.5 4.5 0 1 1-9 0a4.5 4.5 0 1 1 9 0z M10.5 10.5l3 3"
+        : root.name == "zoom" ? "M11.5 7a4.5 4.5 0 1 1-9 0a4.5 4.5 0 1 1 9 0z M10.5 10.5l3 3 M5 7h4 M7 5v4"
+        : root.name == "check" ? "M3.5 8.5l3 3 6-7"
+        : "";
+}
+
+// Quiet button without a border: an icon, a text, a shortcut, or any mix.
+// Used in the header, panels, and dialogs.
+export component QuietButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <string> keys;
+    // Pressed, like the sidebar button while the sidebar is open.
+    in property <bool> active;
+    // Text in the full text color instead of muted.
+    in property <bool> strong;
+    // The chosen one of a few options, on a raised panel.
+    in property <bool> selected;
+    // The accent-filled button of a dialog.
+    in property <bool> primary;
+    // Shortcut before the text instead of after it.
+    in property <bool> keys-first;
+    in property <length> font-size: Theme.font-size-ui;
+    in property <length> icon-size: 14px;
+    // Name and shortcut shown below on hover, for icon-only buttons.
+    in property <string> tip;
+    in property <string> tip-keys;
+    callback clicked();
+
+    property <color> ink: root.primary ? Theme.on-accent : root.active ? Theme.accent : root.strong || root.selected || touch.has-hover ? Theme.text : Theme.text-muted;
+
+    height: 28px;
+    width: row.preferred-width;
+    border-radius: Theme.radius;
+    background: root.primary ? Theme.accent : root.active ? Theme.raised : root.selected ? Theme.surface : touch.has-hover ? Theme.hover : transparent;
 
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -41,16 +128,120 @@ export component TextButton inherits Rectangle {
             root.clicked();
         }
     }
+
+    row := HorizontalLayout {
+        padding-left: root.text == "" && root.keys == "" ? 7px : 8px;
+        padding-right: self.padding-left;
+        spacing: 6px;
+
+        if root.icon != "": Icon {
+            y: (parent.height - self.height) / 2;
+            width: root.icon-size;
+            height: root.icon-size;
+            name: root.icon;
+            color: root.ink;
+        }
+        if root.keys != "" && root.keys-first: Kbd {
+            y: (parent.height - self.height) / 2;
+            text: root.keys;
+        }
+        if root.text != "": Text {
+            text: root.text;
+            color: root.ink;
+            font-size: root.font-size;
+            font-weight: root.primary ? 600 : 400;
+            vertical-alignment: center;
+        }
+        if root.keys != "" && !root.keys-first: Kbd {
+            y: (parent.height - self.height) / 2;
+            text: root.keys;
+            ink: root.primary ? Theme.on-accent : Theme.text-muted;
+            outline: root.primary ? Theme.on-accent : Theme.border;
+        }
+    }
+
+    // Waits a moment so passing the mouse over the header stays quiet.
+    property <bool> show-tip: false;
+    Timer {
+        interval: 400ms;
+        running: root.tip != "" && touch.has-hover && !root.show-tip;
+        triggered => {
+            root.show-tip = true;
+        }
+    }
+    property <bool> hovered: touch.has-hover;
+    changed hovered => {
+        if !self.hovered {
+            self.show-tip = false;
+        }
+    }
+
+    if root.show-tip && touch.has-hover: Rectangle {
+        y: root.height + 8px;
+        x: 0;
+        width: tip-row.preferred-width;
+        height: 26px;
+        border-radius: Theme.radius;
+        border-width: 1px;
+        border-color: Theme.border;
+        background: Theme.raised;
+
+        tip-row := HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 8px;
+
+            Text {
+                text: root.tip;
+                color: Theme.text;
+                font-size: Theme.font-size-small;
+                vertical-alignment: center;
+            }
+            if root.tip-keys != "": Kbd {
+                y: (parent.height - self.height) / 2;
+                text: root.tip-keys;
+            }
+        }
+    }
 }
 
-// Bordered button for settings and dialogs.
+// Bordered header control holding a few values: zoom, page, palette.
+export component Chip inherits Rectangle {
+    in property <bool> open;
+    callback clicked();
+
+    height: 28px;
+    preferred-width: row.preferred-width;
+    width: self.preferred-width;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: root.open ? Theme.accent : Theme.border;
+    background: root.open ? Theme.raised : touch.has-hover ? Theme.hover : transparent;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    row := HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        spacing: 7px;
+
+        @children
+    }
+}
+
+// Bordered button for settings.
 export component Button inherits Rectangle {
     in property <string> text;
     in property <bool> primary;
     callback clicked();
 
-    height: 30px;
-    width: label.preferred-width + 24px;
+    height: 32px;
+    width: label.preferred-width + 22px;
     border-radius: Theme.radius;
     border-width: root.primary ? 0 : 1px;
     border-color: Theme.border;
@@ -58,8 +249,9 @@ export component Button inherits Rectangle {
 
     label := Text {
         text: root.text;
-        color: root.primary ? Theme.background : Theme.text;
-        font-size: Theme.font-size;
+        color: root.primary ? Theme.on-accent : Theme.text;
+        font-size: Theme.font-size-ui;
+        font-weight: root.primary ? 600 : 400;
     }
 
     touch := TouchArea {
@@ -85,13 +277,50 @@ export component Toggle inherits Rectangle {
         width: parent.height - 6px;
         height: self.width;
         border-radius: self.width / 2;
-        background: root.checked ? Theme.background : Theme.text-muted;
+        background: root.checked ? Theme.on-accent : Theme.text-muted;
     }
 
     TouchArea {
         mouse-cursor: pointer;
         clicked => {
             root.toggled();
+        }
+    }
+}
+
+// A few exclusive choices side by side. Reports the chosen `id`.
+export component Segmented inherits Rectangle {
+    in property <[{id: string, label: string}]> options;
+    in property <string> value;
+    callback selected(string);
+
+    height: 34px;
+    width: row.preferred-width;
+    border-radius: Theme.radius + 1px;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    row := HorizontalLayout {
+        padding: 3px;
+        spacing: 2px;
+
+        for option in root.options: Rectangle {
+            width: option-label.preferred-width + 24px;
+            border-radius: max(0px, Theme.radius - 1px);
+            background: option.id == root.value ? Theme.raised : option-touch.has-hover ? Theme.hover : transparent;
+
+            option-label := Text {
+                text: option.label;
+                color: option.id == root.value || option-touch.has-hover ? Theme.text : Theme.text-muted;
+                font-size: Theme.font-size-ui;
+            }
+
+            option-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.selected(option.id);
+                }
+            }
         }
     }
 }
@@ -103,7 +332,7 @@ export component Select inherits Rectangle {
     callback selected(string);
 
     width: 180px;
-    height: 30px;
+    height: 32px;
     border-radius: Theme.radius;
     border-width: 1px;
     border-color: Theme.border;
@@ -112,20 +341,19 @@ export component Select inherits Rectangle {
     HorizontalLayout {
         padding-left: 10px;
         padding-right: 10px;
+        spacing: 10px;
 
         Text {
             text: root.value;
             color: Theme.text;
-            font-size: Theme.font-size;
+            font-size: Theme.font-size-ui;
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
         }
-        Text {
-            text: "⌄";
-            color: Theme.text-muted;
-            font-size: Theme.font-size;
-            vertical-alignment: center;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            name: "down";
         }
     }
 
@@ -141,19 +369,23 @@ export component Select inherits Rectangle {
         width: root.width;
 
         Panel {
+            border-radius: Theme.radius + 2px;
+
             VerticalLayout {
                 padding: 4px;
 
                 for option in root.options: Rectangle {
-                    height: 28px;
-                    border-radius: Theme.radius - 2px;
+                    height: 30px;
+                    border-radius: max(0px, Theme.radius - 1px);
                     background: item.has-hover ? Theme.hover : transparent;
 
                     Text {
                         x: 8px;
+                        width: parent.width - 16px;
                         text: option;
                         color: option == root.value ? Theme.accent : Theme.text;
-                        font-size: Theme.font-size;
+                        font-size: Theme.font-size-ui;
+                        overflow: elide;
                     }
 
                     item := TouchArea {
@@ -163,135 +395,6 @@ export component Select inherits Rectangle {
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-// A keyboard shortcut label.
-export component Kbd inherits Rectangle {
-    in property <string> text;
-
-    width: label.preferred-width + 10px;
-    height: 20px;
-    border-radius: 4px;
-    border-width: 1px;
-    border-color: Theme.border;
-
-    label := Text {
-        text: root.text;
-        color: Theme.text-muted;
-        font-size: Theme.font-size-small;
-        font-family: "Consolas";
-    }
-}
-
-// Line icons drawn as SVG paths on a 24x24 grid, so they don't depend on
-// which symbol fonts are installed.
-export component Icon inherits Path {
-    in property <string> name;
-    in property <color> color: Theme.text-muted;
-
-    width: 16px;
-    height: 16px;
-    viewbox-width: 24;
-    viewbox-height: 24;
-    fill: transparent;
-    stroke: root.color;
-    stroke-width: 1.8px;
-    stroke-line-cap: round;
-    commands: root.name == "general" ? "M4 6h16 M4 12h16 M4 18h16 M9 4v4 M15 10v4 M7 16v4"
-        : root.name == "reading" ? "M4 5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2z M4 19V5 M8 7h8"
-        : root.name == "theme" ? "M12 3a9 9 0 1 0 0.01 0z M12 3v18 M12 7h4 M12 11h6 M12 15h5"
-        : root.name == "appearance" ? "M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z M12 9a3 3 0 1 0 0.01 0z"
-        : root.name == "keys" ? "M3 6h18v12H3z M6.5 10h1 M10.5 10h1 M14.5 10h1 M7 14h10"
-        : root.name == "file" ? "M6 2h9l5 5v15H6z M14 2v6h6 M9 13h6 M9 17h6"
-        : root.name == "about" ? "M12 3a9 9 0 1 0 0.01 0z M12 11v6 M12 7.5v0.5"
-        : root.name == "search" ? "M11 4a7 7 0 1 0 0.01 0z M20 20l-4-4"
-        : root.name == "sidebar" ? "M3 4h18v16H3z M9 4v16"
-        : root.name == "home" ? "M3 11l9-7 9 7 M5 9.5V20h5v-6h4v6h5V9.5"
-        : root.name == "plus" ? "M12 5v14 M5 12h14"
-        : root.name == "session" ? "M12 3l9 5-9 5-9-5z M3 13l9 5 9-5"
-        : root.name == "pdf" ? "M6 2h9l5 5v15H6z M14 2v6h6"
-        : root.name == "fit-width" ? "M3 12h18 M7 8l-4 4 4 4 M17 8l4 4-4 4"
-        : root.name == "fit-page" ? "M6 3h12v18H6z"
-        : root.name == "zoom-in" ? "M11 5a6 6 0 1 0 0.01 0z M8 11h6 M11 8v6 M20 20l-4.5-4.5"
-        : root.name == "zoom-out" ? "M11 5a6 6 0 1 0 0.01 0z M8 11h6 M20 20l-4.5-4.5"
-        : root.name == "settings" ? "M12 9a3 3 0 1 0 0.01 0z M12 2v3 M12 19v3 M2 12h3 M19 12h3 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2"
-        : root.name == "close" ? "M6 6l12 12 M18 6L6 18"
-        : "";
-}
-
-
-// Header icon button; its name and shortcut appear below it on hover.
-export component IconButton inherits Rectangle {
-    in property <string> icon;
-    in property <string> tip;
-    in property <string> shortcut;
-    in property <bool> active;
-    callback clicked();
-
-    width: 30px;
-    height: 28px;
-    border-radius: Theme.radius;
-    background: touch.has-hover ? Theme.hover : transparent;
-
-    Icon {
-        name: root.icon;
-        color: root.active ? Theme.accent : touch.has-hover ? Theme.text : Theme.text-muted;
-    }
-
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            root.clicked();
-        }
-    }
-
-    // Waits a moment so passing the mouse over the header stays quiet.
-    property <bool> show-tip: false;
-    Timer {
-        interval: 400ms;
-        running: touch.has-hover && !root.show-tip;
-        triggered => {
-            root.show-tip = true;
-        }
-    }
-    property <bool> hovered: touch.has-hover;
-    changed hovered => {
-        if !self.hovered {
-            self.show-tip = false;
-        }
-    }
-
-    if root.show-tip && touch.has-hover: Rectangle {
-        y: root.height + 6px;
-        // Right-aligned: the header's buttons sit at the window's right edge.
-        x: root.width - self.width;
-        width: tip-row.preferred-width + 16px;
-        height: 26px;
-        border-radius: Theme.radius;
-        border-width: 1px;
-        border-color: Theme.border;
-        background: Theme.raised;
-
-        tip-row := HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 8px;
-            spacing: 8px;
-
-            Text {
-                text: root.tip;
-                color: Theme.text;
-                font-size: Theme.font-size-small;
-                vertical-alignment: center;
-            }
-            if root.shortcut != "": Text {
-                text: root.shortcut;
-                color: Theme.text-muted;
-                font-size: Theme.font-size-small;
-                font-family: "Consolas";
-                vertical-alignment: center;
             }
         }
     }

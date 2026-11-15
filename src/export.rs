@@ -300,7 +300,7 @@ mod tests {
     }
 
     fn names() -> Vec<String> {
-        ["Important", "Case law", "Later", "Definition", "Trap"]
+        ["Important", "Trap", "Case law", "Later", "Definition"]
             .map(String::from)
             .to_vec()
     }

@@ -19,7 +19,9 @@ use crate::i18n::trf;
 use crate::keymap::Action;
 use crate::layout::{self, Layout, Zoom};
 use crate::nav;
-use crate::pdf::{Bitmap, LinkTarget, NormRect, OutlineItem, Request, SelectionPart, Worker};
+use crate::pdf::{
+    Bitmap, LinkTarget, NormRect, OutlineItem, PageTint, Request, SelectionPart, Worker,
+};
 use crate::search::SearchState;
 use crate::store::{Recent, Store};
 use crate::{AppWindow, Highlight, Mark, NoteFilter, PageView, RecentItem, SideItem, ThumbView};
@@ -72,9 +74,12 @@ enum Popup {
 pub enum PopupOutcome {
     Nothing,
     /// Open the note editor with this quote and existing note.
+    /// `color` is the annotation's place in `COLORS`; `page` its page name.
     EditNote {
         quote: String,
         note: String,
+        color: usize,
+        page: String,
     },
     Copied,
 }
@@ -189,6 +194,10 @@ pub struct Viewer {
     /// Colors the notes list leaves out.
     hidden_colors: HashSet<String>,
     note_filters: Rc<VecModel<NoteFilter>>,
+    /// How pages are recolored, to skip re-rendering when it didn't change.
+    tint: PageTint,
+    /// For the few texts set where no window is passed along.
+    window: slint::Weak<AppWindow>,
     /// Set while the window is being resized: keep showing stretched
     /// pages instead of rendering every intermediate size.
     renders_held: bool,
@@ -261,6 +270,8 @@ impl Viewer {
                 .collect(),
             hidden_colors: HashSet::new(),
             note_filters,
+            tint: PageTint::None,
+            window: window.as_weak(),
             passwords: HashMap::new(),
             renders_held: false,
         };
@@ -344,6 +355,7 @@ impl Viewer {
         self.thumb_layout = Layout::default();
         window.set_page_count(0);
         window.set_page_label("".into());
+        window.set_section_title("".into());
         window.set_current_page(0);
         window.set_document_title("".into());
         self.refresh(window);
@@ -400,6 +412,7 @@ impl Viewer {
         self.outline = outline;
         self.labels.clear();
         window.set_page_label("".into());
+        window.set_section_title("".into());
         self.zoom = kept
             .as_ref()
             .map(|v| v.zoom)
@@ -521,8 +534,14 @@ impl Viewer {
         self.relayout(window);
     }
 
-    pub fn set_inverted(&mut self, window: &AppWindow, inverted: bool) {
-        self.worker.send(Request::SetInverted(inverted));
+    /// Recolors the pages: as drawn, inverted, or tinted like paper.
+    pub fn set_page_tint(&mut self, window: &AppWindow, tint: PageTint) {
+        // Config is reapplied on every settings change; most don't touch this.
+        if tint == self.tint {
+            return;
+        }
+        self.tint = tint;
+        self.worker.send(Request::SetTint(tint));
         self.cache.clear();
         // Kept pages were rendered with the old colors.
         self.tab_views.clear();
@@ -643,6 +662,7 @@ impl Viewer {
             self.current_page = current;
             window.set_current_page(ui_int(current + 1));
             self.update_page_label(window);
+            self.update_section_title(window);
             if self.side_panel == SidePanel::Outline {
                 self.update_side_items();
             }
@@ -915,7 +935,6 @@ impl Viewer {
                         side_outline.push(i);
                         let row = SideItem {
                             title: item.title.as_str().into(),
-                            detail: "".into(),
                             depth: ui_int(item.depth.min(6)),
                             current: current == Some(i),
                             status: i32::from(annotations.level(page, &item.title)),
@@ -938,23 +957,26 @@ impl Viewer {
                         y(a).total_cmp(&y(b))
                     })
                 });
+                // Notes are listed under the outline section they are in.
+                let mut section = None;
                 notes
                     .into_iter()
                     .map(|a| {
-                        let page = self.page_name(a.page);
-                        let detail = if a.note.is_empty() {
-                            trf("p. {}", &[&page])
-                        } else {
-                            trf("p. {} · {}", &[&page, &truncate(&a.note, 120)])
+                        let here = self.section_at(a.page);
+                        let header = match here {
+                            Some(i) if section != here => self.outline[i].title.as_str(),
+                            _ => "",
                         };
+                        section = here;
                         let row = SideItem {
-                            title: truncate(&a.text, 140).into(),
-                            detail: detail.into(),
-                            depth: 0,
+                            title: self.color_name(&a.color).into(),
                             color: self.shade(&a.color),
-                            has_color: true,
-                            current: false,
                             status: -1,
+                            header: header.into(),
+                            page: trf("p. {}", &[&self.page_name(a.page)]).into(),
+                            quote: truncate(&a.text, 160).into(),
+                            note: truncate(&a.note, 240).into(),
+                            ..Default::default()
                         };
                         (row, a.page)
                     })
@@ -978,6 +1000,17 @@ impl Viewer {
             })
             .collect();
         self.note_filters.set_vec(filters);
+        if let Some(window) = self.window.upgrade() {
+            let total = self.annotations.items.len();
+            window.set_notes_all_label(trf("All · {}", &[&total]).into());
+        }
+    }
+
+    /// What a highlight color means, as named in Settings.
+    fn color_name<'a>(&'a self, color: &'a str) -> &'a str {
+        annotations::color_index(color)
+            .and_then(|i| self.color_names.get(i))
+            .map_or(color, String::as_str)
     }
 
     /// Sets the highlight colors' names and shades, in `COLORS` order.
@@ -1002,15 +1035,21 @@ impl Viewer {
             .unwrap_or_else(|| to_color(annotations::color_hex(color)))
     }
 
-    /// Shows or hides a color in the notes list; `index` counts only the
-    /// colors in use, like the filter rows.
+    /// A color picked in the notes filter; `index` counts only the colors
+    /// in use, like the chips. From "all", it shows that color alone;
+    /// after that, colors toggle, and hiding the last one shows all again.
     pub fn note_filter_clicked(&mut self, index: usize) {
-        let picked = self.used_colors().nth(index).map(|(_, color, _)| color);
-        if let Some(color) = picked {
-            if !self.hidden_colors.remove(color) {
-                self.hidden_colors.insert(color.to_owned());
-            }
-        }
+        let used: Vec<&str> = self.used_colors().map(|(_, color, _)| color).collect();
+        let Some(&picked) = used.get(index) else {
+            return;
+        };
+        self.hidden_colors = toggle_filter(&used, &self.hidden_colors, picked);
+        self.update_side_items();
+    }
+
+    /// Shows every color in the notes list again.
+    pub fn note_filter_all(&mut self) {
+        self.hidden_colors.clear();
         self.update_side_items();
     }
 
@@ -1066,13 +1105,27 @@ impl Viewer {
     /// The outline entry the reader is in: the last one starting at or
     /// before the current page.
     fn current_section(&self) -> Option<usize> {
+        self.section_at(self.current_page)
+    }
+
+    /// The outline entry `page` belongs to.
+    fn section_at(&self, page: usize) -> Option<usize> {
         self.outline
             .iter()
             .enumerate()
             .filter_map(|(i, item)| Some((i, item.page?)))
-            .filter(|(_, page)| *page <= self.current_page)
-            .max_by_key(|(_, page)| *page)
+            .filter(|(_, start)| *start <= page)
+            .max_by_key(|(_, start)| *start)
             .map(|(i, _)| i)
+    }
+
+    /// Shows the section the reader is in next to the page number.
+    fn update_section_title(&self, window: &AppWindow) {
+        let title = self
+            .current_section()
+            .and_then(|i| self.outline.get(i))
+            .map_or("", |item| item.title.as_str());
+        window.set_section_title(title.into());
     }
 
     fn cycle_section(&mut self, window: &AppWindow, outline_index: usize) {
@@ -1106,10 +1159,18 @@ impl Viewer {
         let (done, total) = self.progress();
         let text = match total {
             0 => String::new(),
-            1 => trf("{} of 1 section", &[&done]),
-            _ => trf("{} of {} sections", &[&done, &total]),
+            1 => trf("{} of 1 section read", &[&done]),
+            _ => trf("{} of {} sections read", &[&done, &total]),
         };
+        let reviewed = self
+            .sections()
+            .filter(|(page, title)| self.annotations.level(*page, title) > 1)
+            .count();
         window.set_outline_progress_text(text.into());
+        window.set_outline_reviewed_text(match reviewed {
+            0 => "".into(),
+            n => trf("{} reviewed", &[&n]).into(),
+        });
         window.set_outline_progress(if total == 0 {
             0.0
         } else {
@@ -1490,7 +1551,29 @@ impl Viewer {
         PopupOutcome::EditNote {
             quote: a.text.clone(),
             note: a.note.clone(),
+            color: annotations::color_index(&a.color).unwrap_or(0),
+            page: self.page_name(a.page),
         }
+    }
+
+    /// Recolors the annotation whose note is being edited. Returns false
+    /// if no note is open.
+    pub fn note_color(&mut self, window: &AppWindow, index: usize) -> bool {
+        let Some((color, _)) = annotations::COLORS.get(index) else {
+            return false;
+        };
+        let Some(id) = self.note_target else {
+            return false;
+        };
+        if self.annotations.get(id).is_some_and(|a| a.color != *color) {
+            self.history.record(&self.annotations.items);
+            if let Some(a) = self.annotations.get_mut(id) {
+                a.color = (*color).to_owned();
+            }
+            self.save_annotations(window);
+            self.refresh(window);
+        }
+        true
     }
 
     fn copy(&mut self) -> PopupOutcome {
@@ -1829,6 +1912,26 @@ fn model_or_default<T: Clone + 'static>(items: Vec<T>) -> ModelRc<T> {
     }
 }
 
+/// The colors hidden after `picked` is clicked in the notes filter. With
+/// nothing hidden, the click shows `picked` alone; otherwise it toggles
+/// `picked`, and hiding every color in use shows them all again.
+fn toggle_filter(used: &[&str], hidden: &HashSet<String>, picked: &str) -> HashSet<String> {
+    let mut hidden = hidden.clone();
+    if hidden.is_empty() {
+        hidden = used
+            .iter()
+            .filter(|color| **color != picked)
+            .map(|color| (*color).to_owned())
+            .collect();
+    } else if !hidden.remove(picked) {
+        hidden.insert(picked.to_owned());
+    }
+    if used.iter().all(|color| hidden.contains(*color)) {
+        hidden.clear();
+    }
+    hidden
+}
+
 /// Shortens text to `max` characters, on a char boundary, with an ellipsis.
 fn truncate(text: &str, max: usize) -> String {
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -1867,4 +1970,27 @@ pub fn file_name(path: &Path) -> String {
 
 pub fn ui_int(value: usize) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notes_filter_solos_then_toggles() {
+        let used = ["yellow", "red", "green"];
+        let set = |colors: &[&str]| colors.iter().map(|c| (*c).to_owned()).collect();
+        // From "all", a click shows that color alone.
+        let hidden = toggle_filter(&used, &HashSet::new(), "red");
+        assert_eq!(hidden, set(&["yellow", "green"]));
+        // Then colors toggle.
+        let hidden = toggle_filter(&used, &hidden, "green");
+        assert_eq!(hidden, set(&["yellow"]));
+        let hidden = toggle_filter(&used, &hidden, "green");
+        assert_eq!(hidden, set(&["yellow", "green"]));
+        // Hiding the last one shown brings every color back.
+        assert!(toggle_filter(&used, &hidden, "red").is_empty());
+        // A lone color has nothing to filter.
+        assert!(toggle_filter(&["red"], &HashSet::new(), "red").is_empty());
+    }
 }

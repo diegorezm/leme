@@ -17,8 +17,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum PageColors {
-    #[default]
     Original,
+    /// The white of the PDF takes the theme's page color, so the page
+    /// reads as paper instead of glare.
+    #[default]
+    Paper,
     /// Inverted lightness, for reading at night.
     Inverted,
 }
@@ -131,7 +134,7 @@ impl Default for Config {
         Self {
             theme: "Noite".to_owned(),
             language: "pt-BR".to_owned(),
-            page_colors: PageColors::Original,
+            page_colors: PageColors::Paper,
             default_zoom: DefaultZoom::FitWidth,
             restore_session: true,
             sidebar: true,
@@ -156,10 +159,10 @@ impl Default for Config {
 /// unless renamed.
 const DEFAULT_COLOR_NAMES: [(&str, &str); 5] = [
     ("yellow", "Important"),
-    ("green", "Case law"),
-    ("blue", "Later"),
-    ("pink", "Definition"),
-    ("red", "Trap"),
+    ("red", "Doubt"),
+    ("green", "Definition"),
+    ("blue", "Example"),
+    ("pink", "Review"),
 ];
 
 impl Config {
@@ -261,8 +264,8 @@ const CONFIG_HEADER: &str = "\
 #
 # Highlight colors: [color_names] names what each color means, e.g.
 #   [color_names]
-#   red = \"Trap\"
-# and [highlight_colors] their shades, e.g. red = \"#ef6b5f\".
+#   red = \"Doubt\"
+# and [highlight_colors] their shades, e.g. red = \"#d4664d\".
 
 ";
 
@@ -278,6 +281,8 @@ pub struct ThemeDef {
     pub text: String,
     pub text_muted: String,
     pub accent: String,
+    /// The paper: what white becomes with `page_colors = "paper"`.
+    pub page: String,
     pub hover: String,
     pub selection: String,
     #[serde(rename = "match")]
@@ -298,6 +303,7 @@ struct PartialTheme {
     text: Option<String>,
     text_muted: Option<String>,
     accent: Option<String>,
+    page: Option<String>,
     hover: Option<String>,
     selection: Option<String>,
     #[serde(rename = "match")]
@@ -309,8 +315,13 @@ fn default_true() -> bool {
     true
 }
 
-const BUILT_IN: [&str; 12] = [
+/// The house themes come first: Settings previews the first three.
+pub const HOUSE_THEMES: usize = 3;
+
+const BUILT_IN: [&str; 13] = [
     include_str!("../themes/noite.toml"),
+    include_str!("../themes/velino.toml"),
+    include_str!("../themes/mare.toml"),
     include_str!("../themes/graphite.toml"),
     include_str!("../themes/catppuccin-mocha.toml"),
     include_str!("../themes/gruvbox.toml"),
@@ -321,7 +332,6 @@ const BUILT_IN: [&str; 12] = [
     include_str!("../themes/catppuccin-latte.toml"),
     include_str!("../themes/paper.toml"),
     include_str!("../themes/sepia.toml"),
-    include_str!("../themes/velino.toml"),
 ];
 
 pub fn built_in_themes() -> Vec<ThemeDef> {
@@ -382,6 +392,7 @@ fn parse_user_theme(text: &str, built_in: &[ThemeDef]) -> Result<ThemeDef, Strin
         text: p.text.unwrap_or(base.text),
         text_muted: p.text_muted.unwrap_or(base.text_muted),
         accent: p.accent.unwrap_or(base.accent),
+        page: p.page.unwrap_or(base.page),
         hover: p.hover.unwrap_or(base.hover),
         selection: p.selection.unwrap_or(base.selection),
         match_: p.match_.unwrap_or(base.match_),
@@ -394,7 +405,7 @@ fn parse_user_theme(text: &str, built_in: &[ThemeDef]) -> Result<ThemeDef, Strin
 }
 
 impl ThemeDef {
-    pub fn colors(&self) -> [&str; 11] {
+    pub fn colors(&self) -> [&str; 12] {
         [
             &self.background,
             &self.surface,
@@ -403,6 +414,7 @@ impl ThemeDef {
             &self.text,
             &self.text_muted,
             &self.accent,
+            &self.page,
             &self.hover,
             &self.selection,
             &self.match_,
@@ -500,6 +512,11 @@ mod tests {
     fn built_ins_are_complete_and_valid() {
         let themes = built_in_themes();
         assert_eq!(themes.len(), BUILT_IN.len());
+        let house: Vec<&str> = themes[..HOUSE_THEMES]
+            .iter()
+            .map(|t| t.name.as_str())
+            .collect();
+        assert_eq!(house, ["Noite", "Velino", "Maré"]);
         for theme in &themes {
             for color in theme.colors() {
                 assert!(parse_color(color).is_some(), "{}: {color}", theme.name);
@@ -584,6 +601,9 @@ mod tests {
         assert!(partial.vim);
         assert_eq!(partial.theme, "Noite");
         assert!(partial.study_timer);
+        assert_eq!(partial.page_colors, PageColors::Paper);
+        let paper: Config = toml::from_str("page_colors = \"original\"").unwrap();
+        assert_eq!(paper.page_colors, PageColors::Original);
     }
 
     #[test]
@@ -595,7 +615,7 @@ green = \" \"",
         )
         .unwrap();
         assert_eq!(config.color_name("red"), "Pegadinha");
-        assert_eq!(config.color_name("green"), "Case law");
+        assert_eq!(config.color_name("green"), "Definition");
         assert_eq!(config.color_name("yellow"), "Important");
         assert_eq!(config.color_name("teal"), "teal");
 

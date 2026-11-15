@@ -1,20 +1,30 @@
-// Embedded only for the wordmark; the interface uses the system font.
+// Embedded only for the wordmark and the home greeting; the interface uses
+// the system font.
 import "fonts/IMFellEnglish-Regular.ttf";
 
 // Design tokens. Colors are set from Rust from the active theme file;
 // the values here are only the fallback before that happens.
 export global Theme {
-    in-out property <color> background: #15120e;
-    in-out property <color> surface: #1b1713;
-    in-out property <color> raised: #241f19;
-    in-out property <color> border: #2f2921;
-    in-out property <color> text: #e8dfcc;
-    in-out property <color> text-muted: #9c907b;
-    in-out property <color> accent: #d65a40;
-    in-out property <color> hover: #e8dfcc0d;
-    in-out property <color> selection: #d65a4055;
-    in-out property <color> match: #d6a24055;
-    in-out property <color> match-current: #d65a40aa;
+    in-out property <bool> dark: true;
+    in-out property <color> background: #14110d;
+    in-out property <color> surface: #1b1712;
+    in-out property <color> raised: #261f18;
+    in-out property <color> border: #3a3126;
+    in-out property <color> text: #eadfc8;
+    in-out property <color> text-muted: #a39680;
+    in-out property <color> accent: #e0a458;
+    // The paper: tints pages in the "paper" page colors.
+    in-out property <color> page: #eadfc8;
+    in-out property <color> hover: #eadfc814;
+    in-out property <color> selection: #e0a45880;
+    in-out property <color> match: #d9a4416b;
+    in-out property <color> match-current: #d98a2bb8;
+    // Text on the accent (primary buttons).
+    out property <color> on-accent: root.dark ? root.background : root.page;
+    // Text on a highlight pigment, which is always a mid-tone.
+    out property <color> ink: #1b1408;
+    // Dims the document behind a modal overlay.
+    out property <color> scrim: root.dark ? #0806049e : root.text.with-alpha(0.38);
 
     // Layout tokens, set from config.toml (`density`, `corners`,
     // `thumbnail_size`).
@@ -26,6 +36,11 @@ export global Theme {
     in-out property <string> font-family: "Segoe UI Variable Text";
     in-out property <length> font-size: 14px;
     out property <string> display-font: "IM FELL English";
+    // 13 for controls, 12 for supporting text, 11 for spaced-out labels,
+    // 22 for a screen's title.
+    out property <length> font-size-ui: root.font-size - 1px;
     out property <length> font-size-small: root.font-size - 2px;
+    out property <length> font-size-label: root.font-size - 3px;
     out property <length> font-size-large: root.font-size + 2px;
+    out property <length> font-size-title: root.font-size + 8px;
 }

@@ -19,13 +19,14 @@ pub enum Kind {
     Strikethrough,
 }
 
-/// Annotation colors: name and the hex shown on the page.
+/// Annotation colors: the key stored in annotation files and the pigment
+/// shown on the page (ochre, vermilion, verdigris, indigo, madder).
 pub const COLORS: [(&str, &str); 5] = [
-    ("yellow", "#f7d44c"),
-    ("green", "#7fd18b"),
-    ("blue", "#7fb2f0"),
-    ("pink", "#f28fb4"),
-    ("red", "#ef6b5f"),
+    ("yellow", "#d9a441"),
+    ("red", "#d4664d"),
+    ("green", "#68a48d"),
+    ("blue", "#6f93ba"),
+    ("pink", "#c27696"),
 ];
 
 /// The position of a color in `COLORS`, which is also its key (1–5).

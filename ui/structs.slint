@@ -45,16 +45,21 @@ export struct ThumbView {
     dots: [color],
 }
 
-// A row of the outline or notes panel.
+// A row of the outline or notes panel. In the outline, `title` is the
+// section; in the notes, it is the highlight color's name.
 export struct SideItem {
     title: string,
-    detail: string,
     depth: int,
     color: color,
-    has-color: bool,
     current: bool,
-    // Outline progress: -1 no box, 0 unread, 1 read, 2 and 3 reviewed.
+    // Outline progress: -1 no marker, 0 unread, 1 read, 2 and 3 reviewed.
     status: int,
+    // Notes: the outline section, on the first note of each; the page,
+    // the highlighted text, and the note written about it.
+    header: string,
+    page: string,
+    quote: string,
+    note: string,
 }
 
 // A highlight color in Settings: its key in annotation files, the name
@@ -97,6 +102,22 @@ export struct PaletteItem {
     title: string,
     detail: string,
     keys: string,
+    // Group name, on the first item of each group.
+    header: string,
+    // Themes show their background, page, and accent.
+    swatch: bool,
+    color1: color,
+    color2: color,
+    color3: color,
+}
+
+// A row of the session search: a document's name and match count
+// (`header`), or one page with a match.
+export struct SearchHit {
+    header: bool,
+    title: string,
+    page: string,
+    current: bool,
 }
 
 export struct KeyRow {
@@ -105,14 +126,16 @@ export struct KeyRow {
     keys: string,
 }
 
-// A theme as shown in the settings grid.
+// A theme as previewed in Settings: the window, its header, the accent,
+// and a page with a few lines of text and a highlight.
 export struct ThemeCard {
     name: string,
+    detail: string,
     background: color,
-    text: color,
+    surface: color,
     border: color,
-    dot1: color,
-    dot2: color,
-    dot3: color,
-    custom: bool,
+    accent: color,
+    page: color,
+    ink: color,
+    highlight: color,
 }

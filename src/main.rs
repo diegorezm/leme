@@ -205,7 +205,9 @@ fn main() -> Result<(), slint::PlatformError> {
         .viewer()
         .side_item_status_clicked(&win, index(i)));
     on!(window.on_note_filter_clicked, |app, win, i| app
-        .note_filter_clicked(&win, index(i)));
+        .note_filter_clicked(&win, Some(index(i))));
+    on!(window.on_note_filter_all, |app, win| app
+        .note_filter_clicked(&win, None));
     on!(window.on_thumb_clicked, |app, win, page| app
         .viewer()
         .go_to_page(&win, index(page)));
@@ -222,24 +224,30 @@ fn main() -> Result<(), slint::PlatformError> {
             "new-session" => Action::NewSession,
             "sidebar" => Action::ToggleSidebar,
             "study-timer" => Action::ToggleStudyTimer,
+            "goto" => Action::GoToPage,
+            "palette" => Action::CommandPalette,
+            "export" => Action::ExportNotes,
             _ => Action::Open,
         };
         app.run(&win, action)
     });
     on!(window.on_search_edited, |app, win, text| app
-        .viewer()
         .search_edited(&win, &text));
     on!(window.on_search_step, |app, win, forward| app
-        .viewer()
         .search_step(&win, forward));
+    on!(window.on_search_scope_clicked, |app, win, scope| app
+        .set_search_scope(&win, scope == "session"));
+    on!(window.on_search_hit_clicked, |app, win, i| app
+        .search_hit_clicked(&win, index(i)));
+    on!(window.on_overlay_dismissed, |app, win| app
+        .run(&win, Action::Escape));
     on!(window.on_goto_accepted, |app, win, text| app
         .go_to_typed_page(&win, &text));
-    on!(window.on_settings_clicked, |app, win| app
-        .run(&win, Action::Settings));
     on!(window.on_zoom_action, |app, win, action| {
         let action = match action.as_str() {
             "in" => Action::ZoomIn,
             "out" => Action::ZoomOut,
+            "reset" => Action::ZoomReset,
             "fit-page" => Action::FitPage,
             _ => Action::FitWidth,
         };
@@ -262,6 +270,9 @@ fn main() -> Result<(), slint::PlatformError> {
     on!(window.on_update_action, |app, win, action| app
         .update_action(&win, &action));
     on!(window.on_note_saved, |app, win| app.note_saved(&win));
+    on!(window.on_note_deleted, |app, win| app.note_deleted(&win));
+    on!(window.on_note_color_clicked, |app, win, i| app
+        .note_color_clicked(&win, index(i)));
     on!(window.on_export_option, |app, win, key, value| app
         .export_option(&win, &key, &value));
     on!(window.on_export_accepted, |app, win| app

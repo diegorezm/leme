@@ -1,6 +1,50 @@
 import { Theme } from "theme.slint";
 import { PageView, ThumbView, RecentItem, TabItem, SideItem, NoteFilter, SubjectItem } from "structs.slint";
-import { Button, Icon, TextButton } from "widgets.slint";
+import { Icon, QuietButton, Kbd, Label } from "widgets.slint";
+
+// A filter of the notes list: one highlight color, or all of them.
+component FilterChip inherits Rectangle {
+    in property <string> text;
+    in property <color> dot;
+    in property <bool> has-color;
+    in property <bool> on;
+    callback clicked();
+
+    height: 26px;
+    border-radius: 13px;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: root.on ? Theme.raised : touch.has-hover ? Theme.hover : transparent;
+
+    HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        spacing: 6px;
+
+        if root.has-color: Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 9px;
+            height: 9px;
+            border-radius: 4.5px;
+            background: root.dot;
+        }
+        Text {
+            text: root.text;
+            color: root.on ? Theme.text : Theme.text-muted;
+            font-size: Theme.font-size-small;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
 
 // Page thumbnails, the outline, or the notes list. Rust positions only
 // the thumbnails near the viewport.
@@ -13,256 +57,443 @@ export component Sidebar inherits Rectangle {
     in property <string> mode;
     in property <[SideItem]> items;
     in property <[NoteFilter]> filters;
-    // Outline progress, e.g. "4 of 9 sections", and its fraction.
+    // "All · 9", the chip that shows every color.
+    in property <string> all-label;
+    // Outline progress: "4 of 10 sections read", "2 reviewed", the fraction.
     in property <string> progress-text;
+    in property <string> reviewed-text;
     in property <float> progress;
+    // Shortcuts: mark section, export notes.
+    in property <string> mark-keys;
+    in property <string> export-keys;
     callback clicked(int);
     callback filter-clicked(int);
+    callback filter-all-clicked();
     callback status-clicked(int);
     callback mode-clicked(string);
     callback item-clicked(int);
+    callback export-clicked();
     callback close-clicked();
 
-    width: Theme.sidebar-width;
+    // Every color in use is shown (at most five colors exist).
+    property <bool> all-on: (root.filters.length < 1 || root.filters[0].on) && (root.filters.length < 2 || root.filters[1].on) && (root.filters.length < 3 || root.filters[2].on) && (root.filters.length < 4 || root.filters[3].on) && (root.filters.length < 5 || root.filters[4].on);
+
+    // The thumbnail strip keeps the width Rust laid it out for; the text
+    // panels need room for a line of reading.
+    width: root.mode == "thumbs" ? max(Theme.sidebar-width, 248px) : root.mode == "outline" ? 264px : 300px;
     background: Theme.surface;
 
-    tabs := HorizontalLayout {
-        y: 0;
-        height: 32px;
-        padding-left: 4px;
-        padding-right: 4px;
-        alignment: center;
+    VerticalLayout {
+        tabs := Rectangle {
+            height: 37px;
 
-        for tab in [{ id: "thumbs", label: @tr("Pages") }, { id: "outline", label: @tr("Outline") }, { id: "notes", label: @tr("Notes") }]: TextButton {
-            y: (parent.height - self.height) / 2;
-            text: tab.label;
-            font-size: Theme.font-size-small;
-            active: root.mode == tab.id;
-            clicked => {
-                root.mode-clicked(tab.id);
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 6px;
+                spacing: 14px;
+
+                for tab in [{ id: "thumbs", label: @tr("Pages") }, { id: "outline", label: @tr("Outline") }, { id: "notes", label: @tr("Notes") }]: Rectangle {
+                    width: tab-label.preferred-width + 8px;
+
+                    tab-label := Text {
+                        text: tab.label;
+                        color: root.mode == tab.id || tab-touch.has-hover ? Theme.text : Theme.text-muted;
+                        font-size: Theme.font-size-ui;
+                    }
+
+                    if root.mode == tab.id: Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Theme.accent;
+                    }
+
+                    tab-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.mode-clicked(tab.id);
+                        }
+                    }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                QuietButton {
+                    y: (parent.height - self.height) / 2;
+                    icon: "close";
+                    clicked => {
+                        root.close-clicked();
+                    }
+                }
+            }
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.border;
+                // Under the active tab's line.
+                z: -1;
             }
         }
 
-        Rectangle {
-            horizontal-stretch: 1;
-        }
+        if root.mode == "outline": Flickable {
+            vertical-stretch: 1;
+            content-width: self.width;
+            content-height: outline.preferred-height;
 
-        TextButton {
-            y: (parent.height - self.height) / 2;
-            text: "×";
-            clicked => {
-                root.close-clicked();
+            outline := VerticalLayout {
+                width: parent.width;
+                padding: 8px;
+                spacing: 1px;
+                alignment: start;
+
+                if root.items.length == 0: Text {
+                    height: 40px;
+                    text: @tr("No outline");
+                    color: Theme.text-muted;
+                    font-size: Theme.font-size-small;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                for item[i] in root.items: Rectangle {
+                    height: max(30px, outline-row.preferred-height);
+                    border-radius: Theme.radius;
+                    background: item.current ? Theme.raised : touch.has-hover ? Theme.hover : transparent;
+
+                    touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.item-clicked(i);
+                        }
+                    }
+
+                    outline-row := HorizontalLayout {
+                        padding-top: 5px;
+                        padding-bottom: 5px;
+                        padding-left: 8px + item.depth * 14px;
+                        padding-right: 2px;
+                        spacing: 6px;
+
+                        Text {
+                            text: item.title;
+                            color: item.current ? Theme.accent : Theme.text;
+                            font-size: Theme.font-size-ui;
+                            font-weight: item.current ? 600 : 400;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                        }
+
+                        // Unread: a ring. Read: filled. Reviewed: filled, ringed.
+                        if item.status >= 0: Rectangle {
+                            width: 22px;
+                            height: 20px;
+                            y: (parent.height - self.height) / 2;
+
+                            if item.status >= 2: Rectangle {
+                                width: 15px;
+                                height: 15px;
+                                border-radius: 7.5px;
+                                border-width: 1px;
+                                border-color: Theme.accent;
+                            }
+                            Rectangle {
+                                width: 9px;
+                                height: 9px;
+                                border-radius: 4.5px;
+                                border-width: item.status == 0 ? 1.5px : 0;
+                                border-color: status-touch.has-hover ? Theme.text : Theme.text-muted;
+                                background: item.status == 0 ? transparent : Theme.accent;
+                            }
+
+                            status-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.status-clicked(i);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-    }
 
-    if root.mode != "thumbs": Flickable {
-        y: tabs.height;
-        height: parent.height - tabs.height;
-        content-width: self.width;
-        content-height: list.preferred-height;
+        if root.mode == "outline" && root.progress-text != "": Rectangle {
+            height: outline-foot.preferred-height;
 
-        list := VerticalLayout {
-            width: parent.width;
-            padding: 6px;
-            alignment: start;
+            Rectangle {
+                y: 0;
+                height: 1px;
+                background: Theme.border;
+            }
 
-            if root.mode == "outline" && root.progress-text != "": VerticalLayout {
-                padding: 6px;
-                padding-bottom: 10px;
-                spacing: 5px;
+            outline-foot := VerticalLayout {
+                padding: 16px;
+                padding-top: 12px;
+                padding-bottom: 14px;
+                spacing: 8px;
 
                 HorizontalLayout {
                     Text {
                         text: root.progress-text;
-                        color: Theme.text-muted;
+                        color: Theme.text;
                         font-size: Theme.font-size-small;
                         horizontal-stretch: 1;
+                        overflow: elide;
                     }
                     Text {
-                        text: "\{round(root.progress * 100)}%";
+                        text: root.reviewed-text;
                         color: Theme.text-muted;
                         font-size: Theme.font-size-small;
                     }
                 }
                 Rectangle {
-                    height: 3px;
-                    border-radius: 1.5px;
+                    height: 2px;
                     background: Theme.border;
 
                     Rectangle {
                         x: 0;
                         width: parent.width * root.progress;
-                        border-radius: 1.5px;
                         background: Theme.accent;
                     }
                 }
-            }
-
-            // Which highlight colors the list shows.
-            if root.mode == "notes": VerticalLayout {
-                padding-bottom: 6px;
-
-                for f[i] in root.filters: Rectangle {
-                    height: 22px;
-                    border-radius: Theme.radius;
-                    background: filter-touch.has-hover ? Theme.hover : transparent;
-                    opacity: f.on ? 1 : 0.45;
-
-                    HorizontalLayout {
-                        padding-left: 6px;
-                        padding-right: 6px;
-                        spacing: 8px;
-
-                        Rectangle {
-                            y: (parent.height - self.height) / 2;
-                            width: 8px;
-                            height: 8px;
-                            border-radius: 4px;
-                            background: f.color;
-                        }
-                        Text {
-                            text: f.name;
-                            color: Theme.text;
-                            font-size: Theme.font-size-small;
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                            overflow: elide;
-                        }
-                        Text {
-                            text: f.count;
-                            color: Theme.text-muted;
-                            font-size: Theme.font-size-small;
-                            vertical-alignment: center;
-                        }
-                    }
-
-                    filter-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.filter-clicked(i);
-                        }
-                    }
-                }
-            }
-
-            if root.items.length == 0: Text {
-                text: root.mode == "outline" ? @tr("No outline") : root.filters.length > 0 ? @tr("No notes in these colors") : @tr("No notes yet");
-                color: Theme.text-muted;
-                font-size: Theme.font-size-small;
-                horizontal-alignment: center;
-            }
-            for item[i] in root.items: Rectangle {
-                height: row.preferred-height;
-                border-radius: Theme.radius;
-                background: touch.has-hover ? Theme.hover : transparent;
-
-                row := HorizontalLayout {
-                    padding: 5px;
-                    padding-left: 6px + item.depth * 10px;
+                if root.mark-keys != "": HorizontalLayout {
                     spacing: 6px;
 
-                    if item.has-color: Rectangle {
-                        width: 3px;
-                        border-radius: 1.5px;
-                        background: item.color;
+                    Kbd {
+                        text: root.mark-keys;
                     }
-                    if item.status >= 0: Rectangle {
-                        width: 14px;
-                        height: 14px;
-                        y: 2px;
-                        border-radius: 4px;
-                        border-width: item.status == 0 ? 1px : 0;
-                        border-color: status-touch.has-hover ? Theme.text-muted : Theme.border;
-                        background: item.status == 0 ? transparent : item.status == 1 ? Theme.accent : Theme.accent.mix(Theme.text, 0.5);
-
-                        Text {
-                            text: item.status == 0 ? "" : item.status == 1 ? "✓" : item.status == 2 ? "2" : "3";
-                            color: Theme.background;
-                            font-size: 10px;
-                            font-weight: 700;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        status-touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.status-clicked(i);
-                            }
-                        }
-                    }
-                    VerticalLayout {
+                    Text {
+                        text: @tr("marks the current section as read");
+                        color: Theme.text-muted;
+                        font-size: Theme.font-size-small;
+                        vertical-alignment: center;
+                        overflow: elide;
                         horizontal-stretch: 1;
-                        Text {
-                            text: item.title;
-                            color: item.current ? Theme.accent : Theme.text;
-                            font-size: Theme.font-size-small;
-                            wrap: word-wrap;
-                        }
-                        if item.detail != "": Text {
-                            text: item.detail;
-                            color: Theme.text-muted;
-                            font-size: Theme.font-size-small;
-                            wrap: word-wrap;
-                        }
-                    }
-                }
-
-                touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.item-clicked(i);
                     }
                 }
             }
         }
-    }
 
-    if root.mode == "thumbs": Flickable {
-        y: tabs.height;
-        height: parent.height - tabs.height;
-        content-height: root.content-height;
-        content-y <=> root.viewport-y;
+        // Which highlight colors the list shows, two chips per row.
+        if root.mode == "notes" && root.filters.length > 0: Rectangle {
+            property <length> chip-width: (self.width - 24px - 6px) / 2;
 
-        for thumb in root.thumbs: Rectangle {
-            x: thumb.x;
-            y: thumb.y;
-            width: thumb.width;
-            height: thumb.height;
-            background: thumb.loaded ? transparent : Theme.raised;
+            height: 24px + ceil((root.filters.length + 1) / 2) * 32px - 6px;
 
-            Image {
-                width: parent.width;
-                height: parent.height;
-                source: thumb.image;
-                image-fit: fill;
-            }
-
-            // Selection ring drawn just outside the thumbnail.
-            Rectangle {
-                x: -3px;
-                y: -3px;
-                width: parent.width + 6px;
-                height: parent.height + 6px;
-                border-radius: 3px;
-                border-width: 2px;
-                border-color: thumb.page == root.current-page ? Theme.accent : transparent;
-            }
-
-            for dot[i] in thumb.dots: Rectangle {
-                x: parent.width + 4px;
-                y: 6px + i * 10px;
-                width: 6px;
-                height: 6px;
-                border-radius: 3px;
-                background: dot;
-            }
-
-            TouchArea {
-                mouse-cursor: pointer;
+            FilterChip {
+                x: 12px;
+                y: 12px;
+                width: parent.chip-width;
+                text: root.all-label;
+                on: root.all-on;
                 clicked => {
-                    root.clicked(thumb.page);
+                    root.filter-all-clicked();
+                }
+            }
+            for f[i] in root.filters: FilterChip {
+                x: 12px + mod(i + 1, 2) * (parent.chip-width + 6px);
+                y: 12px + floor((i + 1) / 2) * 32px;
+                width: parent.chip-width;
+                text: "\{f.name} · \{f.count}";
+                dot: f.color;
+                has-color: true;
+                on: f.on && !root.all-on;
+                clicked => {
+                    root.filter-clicked(i);
+                }
+            }
+        }
+
+        if root.mode == "notes": Flickable {
+            vertical-stretch: 1;
+            content-width: self.width;
+            content-height: notes.preferred-height;
+
+            notes := VerticalLayout {
+                width: parent.width;
+                padding-left: 6px;
+                padding-right: 6px;
+                padding-bottom: 8px;
+                spacing: 2px;
+                alignment: start;
+
+                if root.items.length == 0: Text {
+                    height: 40px;
+                    text: root.filters.length > 0 ? @tr("No notes in these colors") : @tr("No notes yet");
+                    color: Theme.text-muted;
+                    font-size: Theme.font-size-small;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                for item[i] in root.items: VerticalLayout {
+                    spacing: 2px;
+
+                    if item.header != "": Rectangle {
+                        height: 30px;
+
+                        Label {
+                            x: 10px;
+                            y: 8px;
+                            width: parent.width - 20px;
+                            height: 18px;
+                            label: item.header;
+                        }
+                    }
+
+                    Rectangle {
+                        height: note-row.preferred-height;
+                        border-radius: Theme.radius;
+                        background: note-touch.has-hover ? Theme.hover : transparent;
+
+                        note-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.item-clicked(i);
+                            }
+                        }
+
+                        note-row := VerticalLayout {
+                            padding: 10px;
+                            spacing: 5px;
+
+                            HorizontalLayout {
+                                spacing: 7px;
+
+                                Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 9px;
+                                    height: 9px;
+                                    border-radius: 4.5px;
+                                    background: item.color;
+                                }
+                                Text {
+                                    text: item.title;
+                                    color: Theme.text-muted;
+                                    font-size: Theme.font-size-small;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                                Text {
+                                    text: item.page;
+                                    color: Theme.text-muted;
+                                    font-size: Theme.font-size-small;
+                                }
+                            }
+                            Text {
+                                text: "“" + item.quote + "”";
+                                color: Theme.text-muted;
+                                font-size: Theme.font-size-ui;
+                                font-italic: true;
+                                wrap: word-wrap;
+                            }
+                            if item.note != "": Text {
+                                text: item.note;
+                                color: Theme.text;
+                                font-size: Theme.font-size-ui;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.mode == "notes" && root.filters.length > 0: Rectangle {
+            height: 49px;
+
+            Rectangle {
+                y: 0;
+                height: 1px;
+                background: Theme.border;
+            }
+
+            export-row := Rectangle {
+                x: 12px;
+                y: 11px;
+                width: parent.width - 24px;
+                height: 28px;
+                border-radius: Theme.radius;
+                background: export-touch.has-hover ? Theme.hover : transparent;
+
+                export-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.export-clicked();
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+
+                    Text {
+                        text: @tr("Export notes…");
+                        color: Theme.text;
+                        font-size: Theme.font-size-ui;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    if root.export-keys != "": Kbd {
+                        y: (parent.height - self.height) / 2;
+                        text: root.export-keys;
+                    }
+                }
+            }
+        }
+
+        if root.mode == "thumbs": Rectangle {
+            vertical-stretch: 1;
+
+            Flickable {
+                x: (parent.width - self.width) / 2;
+                width: Theme.sidebar-width;
+                content-height: root.content-height;
+                content-y <=> root.viewport-y;
+
+                for thumb in root.thumbs: Rectangle {
+                    x: thumb.x;
+                    y: thumb.y;
+                    width: thumb.width;
+                    height: thumb.height;
+                    background: thumb.loaded ? transparent : Theme.raised;
+
+                    Image {
+                        width: parent.width;
+                        height: parent.height;
+                        source: thumb.image;
+                        image-fit: fill;
+                    }
+
+                    // Selection ring drawn just outside the thumbnail.
+                    Rectangle {
+                        x: -3px;
+                        y: -3px;
+                        width: parent.width + 6px;
+                        height: parent.height + 6px;
+                        border-radius: 3px;
+                        border-width: 2px;
+                        border-color: thumb.page == root.current-page ? Theme.accent : transparent;
+                    }
+
+                    for dot[i] in thumb.dots: Rectangle {
+                        x: parent.width + 4px;
+                        y: 6px + i * 10px;
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: dot;
+                    }
+
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.clicked(thumb.page);
+                        }
+                    }
                 }
             }
         }
@@ -314,7 +545,7 @@ export component ReadingArea inherits Rectangle {
 
                 // Highlight and selection: translucent fill.
                 if m.kind == 0 || m.kind == 3: Rectangle {
-                    background: m.kind == 3 ? Theme.selection : m.color.with-alpha(0.38);
+                    background: m.kind == 3 ? Theme.selection : m.color.with-alpha(0.42);
                 }
                 // Underline.
                 if m.kind == 1: Rectangle {
@@ -330,14 +561,12 @@ export component ReadingArea inherits Rectangle {
                 }
                 // Note marker.
                 if m.note: Rectangle {
-                    x: parent.width - 3px;
-                    y: -5px;
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 4px;
+                    x: parent.width + 1px;
+                    y: -4px;
+                    width: 7px;
+                    height: 7px;
+                    border-radius: 3.5px;
                     background: m.color;
-                    border-width: 1px;
-                    border-color: #00000055;
                 }
             }
 
@@ -352,7 +581,8 @@ export component ReadingArea inherits Rectangle {
     }
 }
 
-// Shown when no document is open: a hint, the last session, and recent files.
+// Shown when no document is open: where you stopped, the session's
+// documents, the sessions, and recent files.
 export component StartScreen inherits Rectangle {
     in property <[RecentItem]> recent;
     in property <[RecentItem]> sessions;
@@ -360,254 +590,344 @@ export component StartScreen inherits Rectangle {
     // The session's documents and today's / this week's study time.
     in property <[SubjectItem]> subjects;
     in property <string> study-summary;
+    // "Good evening. You stopped at page 112."
+    in property <string> greeting;
+    // Shortcuts: open, palette.
+    in property <string> open-keys;
+    in property <string> palette-keys;
     callback open-subject(int);
     callback open-recent(int);
     callback open-session(int);
     callback new-session();
 
+    property <bool> wide: root.width >= 760px;
+    property <length> column: min(root.width - 48px, 880px);
+
     background: Theme.background;
 
     VerticalLayout {
-        alignment: center;
-        spacing: Theme.spacing * 2;
-        width: min(parent.width - 64px, 460px);
-        x: (parent.width - self.width) / 2;
+        Flickable {
+            vertical-stretch: 1;
+            content-width: self.width;
+            content-height: content.preferred-height;
 
-        // The wordmark: a rubricated initial, as in a manuscript.
-        HorizontalLayout {
-            alignment: center;
+            content := VerticalLayout {
+                x: (parent.width - self.width) / 2;
+                width: root.column;
+                padding-top: min(72px, root.height * 0.09);
+                padding-bottom: 24px;
+                spacing: 48px;
+                alignment: start;
 
-            Text {
-                text: "L";
-                color: Theme.accent;
-                font-family: Theme.display-font;
-                font-size: 56px;
-            }
-            Text {
-                text: "eme";
-                color: Theme.text;
-                font-family: Theme.display-font;
-                font-size: 56px;
-            }
-        }
-
-        Text {
-            text: @tr("Open a PDF with Ctrl+O, or press Ctrl+K for everything else");
-            color: Theme.text-muted;
-            font-size: Theme.font-size;
-            horizontal-alignment: center;
-            wrap: word-wrap;
-        }
-
-        VerticalLayout {
-            spacing: 2px;
-
-            HorizontalLayout {
-                Text {
-                    text: @tr("Sessions");
-                    color: Theme.text-muted;
-                    font-size: Theme.font-size-small;
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
-                }
-                Rectangle {
-                    width: new-label.preferred-width + 12px;
-                    height: 22px;
-                    border-radius: Theme.radius;
-                    background: new-touch.has-hover ? Theme.hover : transparent;
-
-                    new-label := Text {
-                        text: @tr("+ New session");
-                        color: Theme.accent;
-                        font-size: Theme.font-size-small;
-                    }
-
-                    new-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.new-session();
-                        }
-                    }
-                }
-            }
-
-            for session[i] in root.sessions: Rectangle {
-                height: 40px;
-                border-radius: Theme.radius;
-                background: session.title == root.session-name ? Theme.hover : session-touch.has-hover ? Theme.hover : transparent;
-
+                // The wordmark, ruled like a title page, and the greeting.
                 HorizontalLayout {
-                    padding-left: 10px;
-                    padding-right: 10px;
-                    spacing: 10px;
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 20px;
 
-                    Icon {
-                        y: (parent.height - self.height) / 2;
-                        name: "session";
-                        color: session.title == root.session-name ? Theme.accent : Theme.text-muted;
-                    }
-                    Text {
-                        text: session.title;
-                        color: Theme.text;
-                        font-size: Theme.font-size;
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
-                        overflow: elide;
-                    }
-                    Text {
-                        text: session.folder;
-                        color: Theme.text-muted;
-                        font-size: Theme.font-size-small;
-                        vertical-alignment: center;
-                    }
-                }
-
-                session-touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.open-session(i);
-                    }
-                }
-            }
-        }
-
-        if root.subjects.length > 0: VerticalLayout {
-            spacing: 2px;
-
-            HorizontalLayout {
-                Text {
-                    text: root.session-name;
-                    color: Theme.text-muted;
-                    font-size: Theme.font-size-small;
-                    horizontal-stretch: 1;
-                }
-                Text {
-                    text: root.study-summary;
-                    color: Theme.text-muted;
-                    font-size: Theme.font-size-small;
-                }
-            }
-
-            for subject[i] in root.subjects: Rectangle {
-                height: subject-layout.preferred-height;
-                border-radius: Theme.radius;
-                background: subject-touch.has-hover ? Theme.hover : transparent;
-
-                subject-layout := VerticalLayout {
-                    padding: 10px;
-                    padding-top: 8px;
-                    padding-bottom: 8px;
-                    spacing: 5px;
-
-                    HorizontalLayout {
-                        spacing: 10px;
+                    VerticalLayout {
+                        spacing: 4px;
 
                         Text {
-                            text: subject.title;
-                            color: Theme.text;
-                            font-size: Theme.font-size;
-                            overflow: elide;
-                            horizontal-stretch: 1;
+                            text: "Leme";
+                            color: Theme.accent;
+                            font-family: Theme.display-font;
+                            font-size: 72px;
                         }
-                        if subject.has-progress: Text {
-                            text: "\{round(subject.progress * 100)}%";
-                            color: Theme.text-muted;
-                            font-size: Theme.font-size-small;
-                            vertical-alignment: center;
-                        }
-                    }
-                    if subject.has-progress: Rectangle {
-                        height: 3px;
-                        border-radius: 1.5px;
-                        background: Theme.border;
-
                         Rectangle {
-                            x: 0;
-                            width: parent.width * subject.progress;
-                            border-radius: 1.5px;
-                            background: Theme.accent;
+                            height: 2px;
+                            background: Theme.text;
+                            opacity: 0.85;
                         }
                     }
                     Text {
-                        text: subject.detail;
+                        text: root.greeting;
                         color: Theme.text-muted;
-                        font-size: Theme.font-size-small;
-                        overflow: elide;
+                        font-family: Theme.display-font;
+                        font-italic: true;
+                        font-size: 18px;
+                        vertical-alignment: bottom;
+                        horizontal-stretch: 1;
+                        wrap: word-wrap;
                     }
                 }
 
-                subject-touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.open-subject(i);
+                HorizontalLayout {
+                    spacing: 48px;
+
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: start;
+                        spacing: 2px;
+
+                        if root.subjects.length > 0: HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            padding-bottom: 6px;
+
+                            Label {
+                                label: @tr("Continue reading");
+                                horizontal-stretch: 1;
+                            }
+                            Text {
+                                text: root.study-summary;
+                                color: Theme.text-muted;
+                                font-size: Theme.font-size-small;
+                            }
+                        }
+
+                        for subject[i] in root.subjects: Rectangle {
+                            height: subject-layout.preferred-height;
+                            border-radius: Theme.radius;
+                            background: subject.active ? Theme.raised : subject-touch.has-hover ? Theme.hover : transparent;
+
+                            subject-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.open-subject(i);
+                                }
+                            }
+
+                            subject-layout := VerticalLayout {
+                                padding: 12px;
+                                padding-top: 10px;
+                                padding-bottom: 10px;
+                                spacing: 6px;
+
+                                HorizontalLayout {
+                                    spacing: 12px;
+
+                                    Text {
+                                        text: subject.title;
+                                        color: Theme.text;
+                                        font-size: Theme.font-size + 1px;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                    if subject.active: Kbd {
+                                        y: (parent.height - self.height) / 2;
+                                        text: "Enter";
+                                    }
+                                }
+                                Text {
+                                    text: subject.detail;
+                                    color: Theme.text-muted;
+                                    font-size: Theme.font-size-small;
+                                    overflow: elide;
+                                }
+                                Rectangle {
+                                    height: 1px;
+                                    background: Theme.border;
+
+                                    if subject.has-progress: Rectangle {
+                                        x: 0;
+                                        width: parent.width * subject.progress;
+                                        background: Theme.accent;
+                                    }
+                                }
+                            }
+                        }
+
+                        if root.recent.length > 0: Rectangle {
+                            height: root.subjects.length > 0 ? 44px : 24px;
+
+                            Label {
+                                x: 12px;
+                                y: parent.height - 24px;
+                                height: 18px;
+                                label: @tr("Recent");
+                            }
+                        }
+
+                        for item[i] in root.recent: Rectangle {
+                            height: 48px;
+                            border-radius: Theme.radius;
+                            background: touch.has-hover ? Theme.hover : transparent;
+
+                            touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.open-recent(i);
+                                }
+                            }
+
+                            VerticalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                alignment: center;
+                                spacing: 2px;
+
+                                Text {
+                                    text: item.title;
+                                    color: Theme.text;
+                                    font-size: Theme.font-size;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: item.folder;
+                                    color: Theme.text-muted;
+                                    font-size: Theme.font-size-small;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        width: root.wide ? 280px : 200px;
+                        alignment: start;
+                        spacing: 2px;
+
+                        Rectangle {
+                            height: 24px;
+
+                            Label {
+                                x: 12px;
+                                y: 0;
+                                height: 18px;
+                                label: @tr("Sessions");
+                            }
+                        }
+
+                        for session[i] in root.sessions: Rectangle {
+                            property <bool> current: session.title == root.session-name;
+
+                            height: 40px;
+                            border-radius: Theme.radius;
+                            background: self.current ? Theme.raised : session-touch.has-hover ? Theme.hover : transparent;
+
+                            session-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.open-session(i);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 10px;
+
+                                Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 6px;
+                                    height: 6px;
+                                    border-radius: 3px;
+                                    background: session.title == root.session-name ? Theme.accent : transparent;
+                                }
+                                Text {
+                                    text: session.title;
+                                    color: Theme.text;
+                                    font-size: Theme.font-size;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: session.folder;
+                                    color: Theme.text-muted;
+                                    font-size: Theme.font-size-small;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 40px;
+                            border-radius: Theme.radius;
+                            background: new-touch.has-hover ? Theme.hover : transparent;
+
+                            new-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.new-session();
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 9px;
+                                padding-right: 12px;
+                                spacing: 7px;
+
+                                Icon {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 12px;
+                                    height: 12px;
+                                    name: "plus";
+                                    color: new-touch.has-hover ? Theme.text : Theme.text-muted;
+                                }
+                                Text {
+                                    text: @tr("New session…");
+                                    color: new-touch.has-hover ? Theme.text : Theme.text-muted;
+                                    font-size: Theme.font-size;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        if root.recent.length > 0: VerticalLayout {
-            spacing: 2px;
+        HorizontalLayout {
+            alignment: center;
+            padding: 20px;
+            spacing: 6px;
 
+            if root.open-keys != "": Kbd {
+                text: root.open-keys;
+            }
             Text {
-                text: @tr("Recent");
+                text: @tr("open a PDF");
                 color: Theme.text-muted;
                 font-size: Theme.font-size-small;
+                vertical-alignment: center;
             }
-
-            for item[i] in root.recent: Rectangle {
-                height: 44px;
-                border-radius: Theme.radius;
-                background: touch.has-hover ? Theme.hover : transparent;
-
-                VerticalLayout {
-                    padding-left: 10px;
-                    padding-right: 10px;
-                    alignment: center;
-
-                    Text {
-                        text: item.title;
-                        color: Theme.text;
-                        font-size: Theme.font-size;
-                        overflow: elide;
-                    }
-                    Text {
-                        text: item.folder;
-                        color: Theme.text-muted;
-                        font-size: Theme.font-size-small;
-                        overflow: elide;
-                    }
-                }
-
-                touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.open-recent(i);
-                    }
-                }
+            Rectangle {
+                width: 6px;
+            }
+            if root.palette-keys != "": Kbd {
+                text: root.palette-keys;
+            }
+            Text {
+                text: @tr("everything else");
+                color: Theme.text-muted;
+                font-size: Theme.font-size-small;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                width: 6px;
+            }
+            Text {
+                text: @tr("or drop a file here");
+                color: Theme.text-muted;
+                font-size: Theme.font-size-small;
+                vertical-alignment: center;
             }
         }
     }
 }
 
-// Document tabs, in the header.
+// Document tabs, in the header: full height, the open one joined to the
+// document below and marked with a line of accent.
 export component TabBar inherits HorizontalLayout {
     in property <[TabItem]> tabs;
     callback clicked(int);
     callback closed(int);
 
-    spacing: 2px;
     alignment: start;
 
+    if root.tabs.length > 0: Rectangle {
+        width: 1px;
+        background: Theme.border;
+    }
+
     for tab[i] in root.tabs: Rectangle {
-        height: 28px;
-        y: (parent.height - self.height) / 2;
-        max-width: 220px;
-        min-width: 60px;
-        preferred-width: tab-row.preferred-width;
-        border-radius: Theme.radius;
-        background: tab.active ? Theme.surface : touch.has-hover ? Theme.hover : transparent;
-        border-width: tab.active ? 1px : 0;
-        border-color: Theme.border;
+        max-width: 240px;
+        min-width: 64px;
+        preferred-width: tab-row.preferred-width + 1px;
+        background: tab.active ? Theme.background : touch.has-hover ? Theme.hover : transparent;
 
         touch := TouchArea {
             mouse-cursor: pointer;
@@ -622,37 +942,45 @@ export component TabBar inherits HorizontalLayout {
             }
         }
 
+        if tab.active: Rectangle {
+            y: 0;
+            height: 2px;
+            background: Theme.accent;
+        }
+        Rectangle {
+            x: parent.width - 1px;
+            width: 1px;
+            background: Theme.border;
+        }
+
         tab-row := HorizontalLayout {
-            padding-left: 10px;
-            padding-right: 4px;
+            padding-left: 14px;
+            padding-right: 9px;
             spacing: 6px;
 
-            Icon {
-                y: (parent.height - self.height) / 2;
-                width: 14px;
-                height: 14px;
-                name: "pdf";
-                color: tab.active ? Theme.accent : Theme.text-muted;
-            }
             Text {
                 text: tab.title;
-                color: tab.active ? Theme.text : Theme.text-muted;
-                font-size: Theme.font-size;
+                color: tab.active || touch.has-hover ? Theme.text : Theme.text-muted;
+                font-size: Theme.font-size-ui;
+                font-weight: tab.active ? 600 : 400;
                 vertical-alignment: center;
                 overflow: elide;
                 horizontal-stretch: 1;
             }
 
             Rectangle {
+                y: (parent.height - self.height) / 2;
                 width: 18px;
+                height: 18px;
                 border-radius: 4px;
                 background: close.has-hover ? Theme.hover : transparent;
                 opacity: tab.active || touch.has-hover || close.has-hover ? 1 : 0;
 
-                Text {
-                    text: "×";
-                    color: Theme.text-muted;
-                    font-size: Theme.font-size;
+                Icon {
+                    width: 12px;
+                    height: 12px;
+                    name: "close";
+                    color: close.has-hover ? Theme.text : Theme.text-muted;
                 }
 
                 close := TouchArea {

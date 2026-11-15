@@ -1,6 +1,6 @@
 import { Theme } from "theme.slint";
 import { PaletteItem } from "structs.slint";
-import { Panel, Field, Kbd } from "widgets.slint";
+import { Panel, Field, Kbd, Icon, Label } from "widgets.slint";
 
 // Quick access to every command, open tab, recent file, theme, and page,
 // in the spirit of Zed's and VS Code's command palettes.
@@ -14,7 +14,7 @@ export component Palette inherits Panel {
     callback accepted();
     callback item-clicked(int);
 
-    width: 600px;
+    width: 640px;
     height: layout.preferred-height;
 
     public function focus-input() {
@@ -22,9 +22,12 @@ export component Palette inherits Panel {
         input.select-all();
     }
 
+    // Swallows clicks between rows, so they don't reach the scrim.
+    TouchArea { }
+
     layout := VerticalLayout {
         FocusScope {
-            height: 44px;
+            height: 52px;
 
             // Arrows and Enter drive the list while typing.
             capture-key-pressed(event) => {
@@ -44,11 +47,16 @@ export component Palette inherits Panel {
             }
 
             Rectangle {
-                height: 44px;
+                height: 52px;
+
+                Icon {
+                    x: 16px;
+                    name: "search";
+                }
 
                 input := Field {
-                    x: 14px;
-                    width: parent.width - 28px;
+                    x: 40px;
+                    width: parent.width - 56px;
                     font-size: Theme.font-size-large;
                     edited => {
                         root.edited(self.text);
@@ -56,10 +64,12 @@ export component Palette inherits Panel {
                 }
 
                 if input.text == "": Text {
-                    x: 14px;
+                    x: 40px;
+                    width: parent.width - 56px;
                     text: root.placeholder;
                     color: Theme.text-muted;
                     font-size: Theme.font-size-large;
+                    overflow: elide;
                 }
             }
         }
@@ -70,10 +80,10 @@ export component Palette inherits Panel {
         }
 
         if root.items.length == 0: Rectangle {
-            height: 40px;
+            height: 44px;
 
             Text {
-                x: 14px;
+                x: 16px;
                 text: @tr("No matches");
                 color: Theme.text-muted;
                 font-size: Theme.font-size;
@@ -81,51 +91,96 @@ export component Palette inherits Panel {
         }
 
         VerticalLayout {
-            padding: 4px;
+            padding-left: 6px;
+            padding-right: 6px;
+            padding-bottom: 6px;
 
-            for item[i] in root.items: Rectangle {
-                height: 32px;
-                border-radius: Theme.radius - 2px;
-                background: i == root.selected ? Theme.hover : transparent;
+            for item[i] in root.items: VerticalLayout {
+                if item.header != "": Rectangle {
+                    height: 30px;
 
-                if i == root.selected: Rectangle {
-                    x: 0;
-                    width: 2px;
-                    height: parent.height - 12px;
-                    background: Theme.accent;
-                    border-radius: 1px;
-                }
-
-                HorizontalLayout {
-                    padding-left: 10px;
-                    padding-right: 10px;
-                    spacing: 8px;
-
-                    Text {
-                        text: item.title;
-                        color: Theme.text;
-                        font-size: Theme.font-size;
-                        vertical-alignment: center;
-                        overflow: elide;
-                    }
-                    Text {
-                        text: item.detail;
-                        color: Theme.text-muted;
-                        font-size: Theme.font-size-small;
-                        vertical-alignment: center;
-                        overflow: elide;
-                        horizontal-stretch: 1;
-                    }
-                    if item.keys != "": Kbd {
-                        y: (parent.height - self.height) / 2;
-                        text: item.keys;
+                    Label {
+                        x: 10px;
+                        y: 9px;
+                        height: 18px;
+                        width: parent.width - 20px;
+                        label: item.header;
                     }
                 }
+                // Room above an ungrouped first row, like a header's.
+                if item.header == "" && i == 0: Rectangle {
+                    height: 6px;
+                }
 
-                TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.item-clicked(i);
+                Rectangle {
+                    height: 36px;
+                    border-radius: Theme.radius;
+                    background: i == root.selected ? Theme.surface : touch.has-hover ? Theme.hover : transparent;
+
+                    touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.item-clicked(i);
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 10px;
+
+                        if item.swatch: Rectangle {
+                            y: (parent.height - self.height) / 2;
+                            width: 32px;
+                            height: 16px;
+                            border-radius: 4px;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            clip: true;
+
+                            Rectangle {
+                                x: 1px;
+                                y: 1px;
+                                width: 10px;
+                                height: 14px;
+                                background: item.color1;
+                            }
+                            Rectangle {
+                                x: 11px;
+                                y: 1px;
+                                width: 10px;
+                                height: 14px;
+                                background: item.color2;
+                            }
+                            Rectangle {
+                                x: 21px;
+                                y: 1px;
+                                width: 10px;
+                                height: 14px;
+                                background: item.color3;
+                            }
+                        }
+                        Text {
+                            text: item.title;
+                            color: Theme.text;
+                            font-size: Theme.font-size;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+                        if item.detail != "": Text {
+                            text: item.detail;
+                            color: Theme.text-muted;
+                            font-size: Theme.font-size-small;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                            overflow: elide;
+                            max-width: 280px;
+                        }
+                        if item.keys != "": Kbd {
+                            y: (parent.height - self.height) / 2;
+                            text: item.keys;
+                        }
                     }
                 }
             }
@@ -138,42 +193,55 @@ export component Palette inherits Panel {
 
         HorizontalLayout {
             padding: 8px;
-            padding-left: 14px;
-            padding-right: 14px;
+            padding-left: 16px;
+            padding-right: 16px;
             spacing: 6px;
 
-            Text {
-                text: @tr("Open");
-                color: Theme.text;
-                font-size: Theme.font-size-small;
-                vertical-alignment: center;
-            }
             Kbd {
                 text: "Enter";
             }
-            Rectangle {
-                width: 8px;
-            }
             Text {
-                text: @tr("Navigate");
-                color: Theme.text;
+                text: @tr("apply");
+                color: Theme.text-muted;
                 font-size: Theme.font-size-small;
                 vertical-alignment: center;
             }
+            Rectangle {
+                width: 2px;
+            }
             Kbd {
-                text: "↑↓";
+                text: "↑ ↓";
+            }
+            Text {
+                text: @tr("navigate");
+                color: Theme.text-muted;
+                font-size: Theme.font-size-small;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                width: 2px;
+            }
+            if root.width >= 560px: Kbd {
+                text: "112";
+            }
+            if root.width >= 560px: Text {
+                text: @tr("a number goes straight to the page");
+                color: Theme.text-muted;
+                font-size: Theme.font-size-small;
+                vertical-alignment: center;
+                overflow: elide;
             }
             Rectangle {
                 horizontal-stretch: 1;
             }
-            Text {
-                text: @tr("Close");
-                color: Theme.text;
-                font-size: Theme.font-size-small;
-                vertical-alignment: center;
-            }
             Kbd {
                 text: "Esc";
+            }
+            Text {
+                text: @tr("close");
+                color: Theme.text-muted;
+                font-size: Theme.font-size-small;
+                vertical-alignment: center;
             }
         }
     }

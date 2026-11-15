@@ -1,0 +1,16 @@
+# Maré: the grey of an overcast sea, with the rust of the rocks for the accent.
+name = "Maré"
+dark = false
+
+background = "#cfd2ca"
+surface = "#d9dbd4"
+raised = "#e8e9e3"
+border = "#b1b6ab"
+text = "#22282a"
+text_muted = "#525c5c"
+accent = "#7d4119"
+page = "#f3f3ee"
+hover = "#22282a12"
+selection = "#7d411942"
+match = "#d9a4416b"
+match_current = "#d98a2bb8"

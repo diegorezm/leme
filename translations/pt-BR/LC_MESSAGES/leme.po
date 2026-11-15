@@ -5,15 +5,6 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language: pt_BR\n"
 
-msgid "  ·  custom"
-msgstr "  ·  personalizado"
-
-msgid " · {} matches"
-msgstr " · {} ocorrências"
-
-msgid "+ New session"
-msgstr "+ Nova sessão"
-
 msgid "1 note"
 msgstr "1 nota"
 
@@ -23,8 +14,11 @@ msgstr "1 aba"
 msgid "A fast, minimal, local-first PDF reader"
 msgstr "Um leitor de PDF rápido, minimalista e local"
 
-msgid "About"
-msgstr "Sobre"
+msgid "About Leme"
+msgstr "Sobre o Leme"
+
+msgid "Actual size"
+msgstr "Tamanho real"
 
 msgid "Add .toml files to the themes folder."
 msgstr "Adicione arquivos .toml à pasta de temas."
@@ -32,11 +26,14 @@ msgstr "Adicione arquivos .toml à pasta de temas."
 msgid "Add note to selection"
 msgstr "Adicionar nota à seleção"
 
+msgid "All tabs"
+msgstr "Todas as abas"
+
+msgid "All · {}"
+msgstr "Todas · {}"
+
 msgid "Any installed font also works in config.toml."
 msgstr "Qualquer fonte instalada também funciona no config.toml."
-
-msgid "App"
-msgstr "Aplicativo"
 
 msgid "Appearance"
 msgstr "Aparência"
@@ -50,8 +47,8 @@ msgstr "Antes da primeira seção"
 msgid "Built with Rust, Slint, and PDFium. MIT licensed."
 msgstr "Feito com Rust, Slint e PDFium. Licença MIT."
 
-msgid "Case law"
-msgstr "Jurisprudência"
+msgid "Cancel"
+msgstr "Cancelar"
 
 msgid "Check for updates"
 msgstr "Procurar atualizações"
@@ -59,20 +56,17 @@ msgstr "Procurar atualizações"
 msgid "Checking for updates…"
 msgstr "Procurando atualizações…"
 
-msgid "Close"
-msgstr "Fechar"
-
 msgid "Close overlay / clear selection"
 msgstr "Fechar painel / limpar seleção"
 
 msgid "Close tab"
 msgstr "Fechar aba"
 
-msgid "Comfortable"
-msgstr "Confortável"
-
 msgid "Command palette"
 msgstr "Paleta de comandos"
+
+msgid "Commands"
+msgstr "Comandos"
 
 msgid "Compact"
 msgstr "Compacta"
@@ -82,6 +76,9 @@ msgstr "Configuração recarregada"
 
 msgid "Configuration files"
 msgstr "Arquivos de configuração"
+
+msgid "Continue reading"
+msgstr "Continuar lendo"
 
 msgid "Copied"
 msgstr "Copiado"
@@ -113,9 +110,6 @@ msgstr "Não foi possível salvar as notas: {}"
 msgid "Couldn't save that: {}"
 msgstr "Não foi possível salvar: {}"
 
-msgid "Ctrl+Enter to save · Esc to cancel"
-msgstr "Ctrl+Enter salva · Esc cancela"
-
 msgid "Dark"
 msgstr "Escuro"
 
@@ -134,6 +128,9 @@ msgstr "Definição"
 msgid "Delete"
 msgstr "Excluir"
 
+msgid "Delete note"
+msgstr "Excluir nota"
+
 msgid "Delete session"
 msgstr "Excluir sessão"
 
@@ -143,11 +140,11 @@ msgstr "Sessão {} excluída"
 msgid "Density"
 msgstr "Densidade"
 
+msgid "Doubt"
+msgstr "Dúvida"
+
 msgid "Downloading Leme {}…"
 msgstr "Baixando o Leme {}…"
-
-msgid "Edit in config.toml"
-msgstr "Editar no config.toml"
 
 msgid "Edit note"
 msgstr "Editar nota"
@@ -158,14 +155,26 @@ msgstr "Enter salva · Esc fecha"
 msgid "Every setting here, plus keybindings. Changes made in this window are written there too."
 msgstr "Todas as configurações daqui, mais os atalhos. O que você muda nesta janela também é gravado lá."
 
+msgid "Everything here is saved to config.toml. Nothing leaves this machine."
+msgstr "Tudo aqui é gravado em config.toml. Nada sai desta máquina."
+
+msgid "Example"
+msgstr "Exemplo"
+
 msgid "Export notes"
 msgstr "Exportar notas"
 
 msgid "Export notes (Markdown, Anki, CSV)…"
 msgstr "Exportar notas (Markdown, Anki, CSV)…"
 
+msgid "Export notes…"
+msgstr "Exportar notas…"
+
 msgid "File not found: {}"
 msgstr "Arquivo não encontrado: {}"
+
+msgid "Files"
+msgstr "Arquivos"
 
 msgid "First page"
 msgstr "Primeira página"
@@ -194,8 +203,20 @@ msgstr "Ir para a página {}"
 msgid "Go to page…"
 msgstr "Ir para a página…"
 
+msgid "Good afternoon."
+msgstr "Boa tarde."
+
+msgid "Good evening."
+msgstr "Boa noite."
+
+msgid "Good morning."
+msgstr "Bom dia."
+
 msgid "Group by outline section and color"
 msgstr "Agrupar por seção do sumário e cor"
+
+msgid "Hide side panel"
+msgstr "Ocultar painel lateral"
 
 msgid "Highlight selection"
 msgstr "Grifar seleção"
@@ -233,14 +254,11 @@ msgstr "Idioma da interface"
 msgid "Inverted"
 msgstr "Invertidas"
 
-msgid "Inverted turns white pages dark, for reading at night."
-msgstr "Invertidas deixa as páginas brancas escuras, para ler à noite."
-
-msgid "Keybindings"
-msgstr "Atalhos"
-
 msgid "Keyboard"
 msgstr "Teclado"
+
+msgid "Keys"
+msgstr "Teclas"
 
 msgid "Language"
 msgstr "Idioma"
@@ -257,6 +275,15 @@ msgstr "Ver depois"
 msgid "Layout"
 msgstr "Layout"
 
+msgid "Leme settings"
+msgstr "Configurações do Leme"
+
+msgid "Leme will close, update, and open again."
+msgstr "O Leme vai fechar, atualizar e abrir de novo."
+
+msgid "Leme {} is available"
+msgstr "Leme {} disponível"
+
 msgid "Light"
 msgstr "Claro"
 
@@ -272,8 +299,8 @@ msgstr "Média"
 msgid "Menus, messages, and exports."
 msgstr "Menus, mensagens e exportações."
 
-msgid "Navigate"
-msgstr "Navegar"
+msgid "Menus, panels, and the palette."
+msgstr "Menus, painéis e paleta."
 
 msgid "New session"
 msgstr "Nova sessão"
@@ -314,6 +341,9 @@ msgstr "Nenhuma aba nesta sessão"
 msgid "No telemetry, no accounts, no network access. Your notes, settings, and history stay in the data folder."
 msgstr "Sem telemetria, sem contas. Suas notas, configurações e histórico ficam na pasta de dados."
 
+msgid "Normal"
+msgstr "Normal"
+
 msgid "Note"
 msgstr "Nota"
 
@@ -332,11 +362,11 @@ msgstr "Nada para desfazer"
 msgid "Open"
 msgstr "Abrir"
 
-msgid "Open a PDF with Ctrl+O, or press Ctrl+K for everything else"
-msgstr "Abra um PDF com Ctrl+O ou aperte Ctrl+K para todo o resto"
-
 msgid "Open config.toml"
 msgstr "Abrir config.toml"
+
+msgid "Open file"
+msgstr "Abrir arquivo"
 
 msgid "Open file…"
 msgstr "Abrir arquivo…"
@@ -359,6 +389,9 @@ msgstr "Link aberto no navegador"
 msgid "Original"
 msgstr "Originais"
 
+msgid "Other themes"
+msgstr "Outros temas"
+
 msgid "Outline"
 msgstr "Sumário"
 
@@ -373,6 +406,12 @@ msgstr "Página {}"
 
 msgid "Pages"
 msgstr "Páginas"
+
+msgid "Paper"
+msgstr "Papel"
+
+msgid "Paper tints the PDF's white with the theme's page color, so it doesn't glare at night."
+msgstr "Papel tinge o branco do PDF com a cor do tema, para não ofuscar à noite."
 
 msgid "Password"
 msgstr "Senha"
@@ -392,8 +431,8 @@ msgstr "Aba anterior"
 msgid "Private by design"
 msgstr "Privado por princípio"
 
-msgid "Reading"
-msgstr "Leitura"
+msgid "Reading and study"
+msgstr "Leitura e estudo"
 
 msgid "Reattach on startup"
 msgstr "Retomar ao abrir"
@@ -413,9 +452,6 @@ msgstr "Recarregar"
 msgid "Reload config and themes"
 msgstr "Recarregar configuração e temas"
 
-msgid "Reload themes"
-msgstr "Recarregar temas"
-
 msgid "Rename session"
 msgstr "Renomear sessão"
 
@@ -430,6 +466,9 @@ msgstr "Redefinir zoom"
 
 msgid "Restore defaults"
 msgstr "Restaurar padrões"
+
+msgid "Review"
+msgstr "Revisar"
 
 msgid "Round"
 msgstr "Redondos"
@@ -467,6 +506,9 @@ msgstr "Buscar"
 msgid "Search all tabs in session…"
 msgstr "Buscar em todas as abas da sessão…"
 
+msgid "Search commands…"
+msgstr "Buscar comandos…"
+
 msgid "Search commands, tabs, files, themes, or type a page number…"
 msgstr "Busque comandos, abas, arquivos, temas ou digite o número de uma página…"
 
@@ -475,12 +517,6 @@ msgstr "Buscar no documento"
 
 msgid "Search settings"
 msgstr "Buscar configurações"
-
-msgid "Search the text of all {} tabs in this session…"
-msgstr "Buscar no texto das {} abas desta sessão…"
-
-msgid "Search the text of the tab in this session…"
-msgstr "Buscar no texto da aba desta sessão…"
 
 msgid "Session"
 msgstr "Sessão"
@@ -494,9 +530,6 @@ msgstr "Sessões"
 msgid "Settings"
 msgstr "Configurações"
 
-msgid "Settings  /"
-msgstr "Configurações  /"
-
 msgid "Sharp"
 msgstr "Retos"
 
@@ -509,8 +542,17 @@ msgstr "Mostrar sumário"
 msgid "Show page thumbnails"
 msgstr "Mostrar miniaturas"
 
-msgid "Show page thumbnails next to the document."
-msgstr "Mostra miniaturas das páginas ao lado do documento."
+msgid "Show pages, outline, or notes next to the document."
+msgstr "Mostra páginas, sumário ou notas ao lado do documento."
+
+msgid "Show side panel"
+msgstr "Mostrar painel lateral"
+
+msgid "Shows today's reading time in the header and keeps it per day and document. Off, nothing is counted or shown."
+msgstr "Mostra no cabeçalho o tempo de leitura de hoje e o registra por dia e documento. Desligado, nada é contado nem mostrado."
+
+msgid "Side panel"
+msgstr "Painel lateral"
 
 msgid "Skip this version"
 msgstr "Pular esta versão"
@@ -524,6 +566,12 @@ msgstr "Espaçamento e altura do cabeçalho."
 msgid "Spacious"
 msgstr "Espaçosa"
 
+msgid "Study"
+msgstr "Estudo"
+
+msgid "Study timer"
+msgstr "Cronômetro de estudo"
+
 msgid "Study timer paused"
 msgstr "Cronômetro de estudo pausado"
 
@@ -533,11 +581,17 @@ msgstr "Cronômetro de estudo ligado"
 msgid "Switch session…"
 msgstr "Trocar de sessão…"
 
+msgid "Tabs and recent"
+msgstr "Abas e recentes"
+
 msgid "Text size"
 msgstr "Tamanho do texto"
 
 msgid "The only session can't be deleted"
 msgstr "A única sessão não pode ser excluída"
+
+msgid "The study timer is off in Settings"
+msgstr "O cronômetro de estudo está desligado nas Configurações"
 
 msgid "Theme"
 msgstr "Tema"
@@ -548,14 +602,17 @@ msgstr "Tema \"{}\" não encontrado"
 msgid "Theme: {}"
 msgstr "Tema: {}"
 
+msgid "Themes"
+msgstr "Temas"
+
 msgid "This copy isn't installed, so the release page will open."
 msgstr "Esta cópia não está instalada, então a página da versão será aberta."
 
+msgid "This document"
+msgstr "Este documento"
+
 msgid "This document has no outline"
 msgstr "Este documento não tem sumário"
-
-msgid "Thumbnail sidebar"
-msgstr "Barra de miniaturas"
 
 msgid "Thumbnail size"
 msgstr "Tamanho das miniaturas"
@@ -569,9 +626,6 @@ msgstr "Alternar tela cheia"
 msgid "Toggle sidebar"
 msgstr "Alternar barra lateral"
 
-msgid "Trap"
-msgstr "Pegadinha"
-
 msgid "Undo annotation change"
 msgstr "Desfazer alteração de anotação"
 
@@ -584,17 +638,14 @@ msgstr "A atualização falhou: {}"
 msgid "Vim keys"
 msgstr "Teclas do vim"
 
-msgid "Visual"
-msgstr "Visual"
-
 msgid "What each color means, shown in the notes panel and in exports. Keys 1–5 pick them in this order."
 msgstr "O que cada cor significa, mostrado na lista de notas e nas exportações. As teclas 1–5 escolhem as cores nesta ordem."
 
 msgid "Wrong password"
 msgstr "Senha incorreta"
 
-msgid "Your themes"
-msgstr "Seus temas"
+msgid "You stopped at page {}."
+msgstr "Você parou na página {}."
 
 msgid "Zoom in"
 msgstr "Aumentar zoom"
@@ -605,32 +656,65 @@ msgstr "Diminuir zoom"
 msgid "\nconfig.toml, themes, annotations, and reading history."
 msgstr "\nconfig.toml, temas, anotações e histórico de leitura."
 
+msgid "a number goes straight to the page"
+msgstr "um número vai direto à página"
+
 msgid "any app"
 msgstr "qualquer app"
 
-msgid "Leme settings"
-msgstr "Configurações do Leme"
+msgid "apply"
+msgstr "aplicar"
 
-msgid "Leme will close, update, and open again."
-msgstr "O Leme vai fechar, atualizar e abrir de novo."
+msgid "by candlelight"
+msgstr "à luz de vela"
 
-msgid "Leme {} is available"
-msgstr "Leme {} disponível"
+msgid "close"
+msgstr "fechar"
+
+msgid "everything else"
+msgstr "todo o resto"
 
 msgid "front · back · tags"
 msgstr "frente · verso · tags"
 
+msgid "in use"
+msgstr "em uso"
+
 msgid "j/k scroll, gg/G first/last page, Ctrl+D/U half screen, / search, n/N matches, : command palette, y copy."
 msgstr "j/k rolam, gg/G primeira/última página, Ctrl+D/U meia tela, / busca, n/N ocorrências, : paleta de comandos, y copia."
+
+msgid "marks the current section as read"
+msgstr "marca a seção atual como lida"
+
+msgid "navigate"
+msgstr "navegar"
+
+msgid "next"
+msgstr "próxima"
+
+msgid "open a PDF"
+msgstr "abrir um PDF"
+
+msgid "or drop a file here"
+msgstr "ou solte um arquivo aqui"
+
+msgid "overcast sea"
+msgstr "mar nublado"
 
 msgid "p. {}"
 msgstr "p. {}"
 
-msgid "p. {} · {}"
-msgstr "p. {} · {}"
-
 msgid "p. {}, line {}"
 msgstr "p. {}, linha {}"
+
+msgid "page {}"
+msgstr "página {}"
+
+msgid "paper by day"
+msgstr "papel de dia"
+
+msgid "previous"
+msgstr "anterior"
 
 msgid "summary by section"
 msgstr "resumo por seção"
@@ -641,29 +725,26 @@ msgstr "semana {}"
 msgid "today {}"
 msgstr "hoje {}"
 
+msgid "{} more themes, built in and yours, as .toml files."
+msgstr "Mais {} temas, embutidos e os seus, em arquivos .toml."
+
 msgid "{} notes"
 msgstr "{} notas"
 
-msgid "{} of 1 section"
-msgstr "{} de 1 seção"
+msgid "{} of 1 section read"
+msgstr "{} de 1 seção lida"
 
 msgid "{} of {} sections"
 msgstr "{} de {} seções"
+
+msgid "{} of {} sections read"
+msgstr "{} de {} seções lidas"
+
+msgid "{} reviewed"
+msgstr "{} revisadas"
 
 msgid "{} tabs"
 msgstr "{} abas"
 
 msgid "{} · current"
 msgstr "{} · atual"
-
-msgid "Study"
-msgstr "Estudo"
-
-msgid "Study timer"
-msgstr "Cronômetro de estudo"
-
-msgid "Shows today's reading time in the header and keeps it per day and document. Off, nothing is counted or shown."
-msgstr "Mostra no cabeçalho o tempo de leitura de hoje e o registra por dia e documento. Desligado, nada é contado nem mostrado."
-
-msgid "The study timer is off in Settings"
-msgstr "O cronômetro de estudo está desligado nas Configurações"

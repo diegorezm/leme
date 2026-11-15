@@ -15,6 +15,18 @@ use pdfium_render::prelude::*;
 use crate::recover::{self, Glyph, Recovery};
 use serde::{Deserialize, Serialize};
 
+/// How a rendered page is recolored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PageTint {
+    /// As the PDF draws it.
+    #[default]
+    None,
+    /// Inverted lightness, for reading at night.
+    Inverted,
+    /// White becomes this RGB, the theme's paper.
+    Paper([u8; 3]),
+}
+
 pub enum Request {
     Open {
         path: PathBuf,
@@ -40,8 +52,8 @@ pub enum Request {
     },
     /// Selects the whole line of text nearest a point (double click).
     SelectLine { page: usize, point: (f32, f32) },
-    /// Invert page colors in future renders (dark reading).
-    SetInverted(bool),
+    /// How future renders color the page.
+    SetTint(PageTint),
     /// Follows the link at a point on a page (page fractions), if any.
     LinkAt { page: usize, point: (f32, f32) },
     /// Searches the text of other documents, one page at a time, replacing
@@ -408,7 +420,7 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
     let mut select: Option<SelectJob> = None;
     // Character boxes of recently selected pages, reused while dragging.
     let mut char_cache: VecDeque<(usize, Chars)> = VecDeque::new();
-    let mut inverted = false;
+    let mut tint = PageTint::None;
     // Whether the live document's page labels are still to be sent.
     let mut labels_due = false;
     let mut link: Option<(usize, (f32, f32))> = None;
@@ -541,8 +553,8 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
                 link = Some((page, point));
                 continue;
             }
-            Some(Request::SetInverted(value)) => {
-                inverted = value;
+            Some(Request::SetTint(value)) => {
+                tint = value;
                 continue;
             }
             Some(Request::SearchFiles { id, query, paths }) => {
@@ -642,7 +654,7 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
         } else if let Some(page) = renders.previews.pop_front() {
             let width_px = (renders.width_px / PREVIEW_DIVISOR).max(1);
             // The full render follows; a failed preview needs no message.
-            if let Ok(bitmap) = render(doc, page, width_px, inverted, false) {
+            if let Ok(bitmap) = render(doc, page, width_px, tint, false) {
                 on_event(Event::Rendered {
                     page,
                     width_px,
@@ -651,7 +663,7 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
             }
         } else if let Some(page) = renders.pages.pop_front() {
             let width_px = renders.width_px;
-            match render(doc, page, width_px, inverted, true) {
+            match render(doc, page, width_px, tint, true) {
                 Ok(bitmap) => on_event(Event::Rendered {
                     page,
                     width_px,
@@ -683,7 +695,7 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
         } else if let Some(page) = thumbs.pages.pop_front() {
             let width_px = thumbs.width_px;
             // A missing thumbnail isn't worth interrupting the reader for.
-            if let Ok(bitmap) = render(doc, page, width_px, inverted, false) {
+            if let Ok(bitmap) = render(doc, page, width_px, tint, false) {
                 on_event(Event::Thumbnail { page, bitmap });
             }
         } else if labels_due {
@@ -955,7 +967,7 @@ fn render(
     doc: &PdfDocument,
     page: usize,
     width_px: u32,
-    inverted: bool,
+    tint: PageTint,
     forms: bool,
 ) -> Result<Bitmap, PdfiumError> {
     let pdf_page = load_page(doc, page)?;
@@ -967,8 +979,10 @@ fn render(
         .render_form_data(forms);
     let bitmap = pdf_page.render_with_config(&config)?;
     let mut rgba = bitmap.as_rgba_bytes();
-    if inverted {
-        invert(&mut rgba);
+    match tint {
+        PageTint::None => {}
+        PageTint::Inverted => invert(&mut rgba),
+        PageTint::Paper(paper) => tint_paper(&mut rgba, paper),
     }
     Ok(Bitmap {
         width: u32::try_from(bitmap.width()).unwrap_or(0),
@@ -1015,6 +1029,24 @@ fn invert(rgba: &mut [u8]) {
     for px in rgba.as_chunks_mut::<4>().0 {
         for c in &mut px[..3] {
             *c = LUT[*c as usize];
+        }
+    }
+}
+
+/// Multiplies RGB by `paper`, leaving alpha: white becomes the paper's
+/// color and black stays black, so ink keeps its contrast.
+fn tint_paper(rgba: &mut [u8], paper: [u8; 3]) {
+    // One table per channel: a load instead of a multiply and divide.
+    let luts = paper.map(|p| {
+        let mut lut = [0u8; 256];
+        for (i, out) in lut.iter_mut().enumerate() {
+            *out = ((i * usize::from(p) + 127) / 255) as u8;
+        }
+        lut
+    });
+    for px in rgba.as_chunks_mut::<4>().0 {
+        for (c, lut) in px[..3].iter_mut().zip(&luts) {
+            *c = lut[*c as usize];
         }
     }
 }
@@ -1715,6 +1747,15 @@ mod tests {
     }
 
     #[test]
+    fn paper_tints_white_and_keeps_black() {
+        let mut px = [255, 255, 255, 77, 0, 0, 0, 255, 128, 128, 128, 255];
+        tint_paper(&mut px, [234, 223, 200]);
+        assert_eq!(px[..4], [234, 223, 200, 77]);
+        assert_eq!(px[4..8], [0, 0, 0, 255]);
+        assert_eq!(px[8..], [117, 112, 100, 255]);
+    }
+
+    #[test]
     fn invert_softens() {
         let mut px = [255, 0, 128, 77];
         invert(&mut px);
@@ -1749,14 +1790,17 @@ mod tests {
         ] {
             let t = Instant::now();
             for &page in &pages {
-                render(&doc, page, width, false, forms).unwrap();
+                render(&doc, page, width, PageTint::None, forms).unwrap();
             }
             println!("{label}: {:.1} ms avg", ms(t) / pages.len() as f64);
         }
-        let mut bitmap = render(&doc, 0, 1600, false, true).unwrap();
+        let mut bitmap = render(&doc, 0, 1600, PageTint::None, true).unwrap();
         let t = Instant::now();
         invert(&mut bitmap.rgba);
         println!("invert 1600 px: {:.2} ms", ms(t));
+        let t = Instant::now();
+        tint_paper(&mut bitmap.rgba, [234, 223, 200]);
+        println!("paper tint 1600 px: {:.2} ms", ms(t));
         let t = Instant::now();
         for page in 0..sizes.len() {
             search_page(&doc, page, "holmes", None).unwrap();
@@ -1809,10 +1853,10 @@ mod tests {
         assert_eq!(page_labels(&pdfium, &path, None, 2), vec![String::new(); 2]);
         assert_eq!(link_at(&doc, 0, (0.5, 0.5)), None);
         assert_eq!(sizes, vec![(200.0, 300.0); 2]);
-        let bitmap = render(&doc, 1, 100, false, true).unwrap();
+        let bitmap = render(&doc, 1, 100, PageTint::None, true).unwrap();
         assert_eq!((bitmap.width, bitmap.height), (100, 150));
         assert_eq!(bitmap.rgba.len(), 100 * 150 * 4);
-        assert!(render(&doc, 5, 100, false, true).is_err());
+        assert!(render(&doc, 5, 100, PageTint::None, true).is_err());
         assert_eq!(
             search_page(&doc, 0, "anything", None).unwrap(),
             Vec::<Vec<_>>::new()

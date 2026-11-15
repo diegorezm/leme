@@ -15,7 +15,7 @@ use crate::export::Format;
 use crate::i18n::{self, tr, trf, untr};
 use crate::keymap::{Action, Chord, KeyResult, Keymap};
 use crate::palette::{self, Entry, Target};
-use crate::pdf::{Event, Worker};
+use crate::pdf::{Event, PageTint, Worker};
 use crate::store::{unique_name, Session, Store, DEFAULT_SESSION};
 use crate::study::{self, Clock, StudyLog};
 use crate::titlebar;
@@ -23,16 +23,44 @@ use crate::update;
 use crate::viewer::PageBuffer;
 use crate::viewer::{file_name, to_color, ui_int, PopupOutcome, SidePanel, Viewer};
 use crate::{
-    AppWindow, HighlightRow, KeyRow, PaletteItem, RecentItem, SettingsWindow, SubjectItem, TabItem,
-    Theme, ThemeCard,
+    AppWindow, HighlightRow, KeyRow, PaletteItem, RecentItem, SearchHit, SettingsWindow,
+    SubjectItem, TabItem, Theme, ThemeCard,
 };
 
 const PALETTE_LIMIT: usize = 12;
+/// Entries of one kind (themes, commands, tabs) the palette lists at once.
+const PALETTE_GROUP_LIMIT: usize = 5;
 const PALETTE_PLACEHOLDER: &str = "Search commands, tabs, files, themes, or type a page number…";
 /// Shades offered for highlight colors in Settings; any hex works too.
 const HIGHLIGHT_PRESETS: [&str; 10] = [
-    "#f7d44c", "#ffa94d", "#ef6b5f", "#f28fb4", "#c49bf0", "#7fb2f0", "#5fd0d0", "#7fd18b",
-    "#b5c45a", "#a0a4ad",
+    "#d9a441", "#d4664d", "#68a48d", "#6f93ba", "#c27696", "#d98a2b", "#9a86c4", "#5fa3a8",
+    "#a3a857", "#a39680",
+];
+/// Session search hits listed; more than a reader would step through.
+const MAX_SESSION_HITS: usize = 400;
+/// What the house themes are, shown under their previews in Settings.
+const THEME_TAGLINES: [(&str, &str); 3] = [
+    ("Noite", "by candlelight"),
+    ("Velino", "paper by day"),
+    ("Maré", "overcast sea"),
+];
+/// Actions whose shortcuts the window shows next to its controls, in the
+/// order of its `header-keys`.
+const HINT_KEYS: [Action; 14] = [
+    Action::FitWidth,
+    Action::FitPage,
+    Action::ZoomOut,
+    Action::ZoomIn,
+    Action::ZoomReset,
+    Action::CommandPalette,
+    Action::MarkSection,
+    Action::ExportNotes,
+    Action::AddNote,
+    Action::Copy,
+    Action::Search,
+    Action::SearchSession,
+    Action::Open,
+    Action::ToggleSidebar,
 ];
 /// Characters a session search needs before it starts.
 const MIN_SESSION_QUERY: usize = 3;
@@ -78,9 +106,17 @@ pub struct App {
     /// Group Markdown exports by outline section.
     export_by_section: bool,
 
-    /// The palette is searching the session's documents, with this id.
+    /// The search panel is searching every tab of the session, with this id.
     session_search: Option<u64>,
     next_session_search: u64,
+    /// Pages found by the session search: document, page, snippet, and
+    /// how many matches the page has.
+    session_hits: Vec<(PathBuf, usize, String, usize)>,
+    /// The hit last opened.
+    session_selected: Option<usize>,
+    /// The hit behind each row of the list; headings have none.
+    hit_rows: Vec<Option<usize>>,
+    search_hits: Rc<VecModel<SearchHit>>,
     /// Waits for a pause in typing before searching the session.
     session_timer: slint::Timer,
     /// A page to show once its document opens, and the query to highlight.
@@ -101,6 +137,8 @@ impl App {
         window.set_tabs(tab_items.clone().into());
         window.set_sessions(session_items.clone().into());
         window.set_palette_items(palette_items.clone().into());
+        let search_hits = Rc::new(VecModel::default());
+        window.set_search_hits(search_hits.clone().into());
         settings.set_version(env!("CARGO_PKG_VERSION").into());
         settings.set_data_dir(
             config::data_dir()
@@ -131,6 +169,10 @@ impl App {
             export_by_section: true,
             session_search: None,
             next_session_search: 0,
+            session_hits: Vec::new(),
+            session_selected: None,
+            hit_rows: Vec::new(),
+            search_hits,
             session_timer: slint::Timer::default(),
             open_at: None,
             palette_entries: Vec::new(),
@@ -178,23 +220,8 @@ impl App {
         window.set_study_timer(self.config.study_timer);
         let (keymap, key_problems) = Keymap::new(self.config.vim, &self.config.keys);
         self.keymap = keymap;
-        let header_keys: Vec<slint::SharedString> = [
-            Action::FitWidth,
-            Action::FitPage,
-            Action::ZoomOut,
-            Action::ZoomIn,
-            Action::Settings,
-        ]
-        .iter()
-        .map(|a| {
-            self.keymap
-                .keys_for(*a)
-                .first()
-                .cloned()
-                .unwrap_or_default()
-                .into()
-        })
-        .collect();
+        let header_keys: Vec<slint::SharedString> =
+            HINT_KEYS.iter().map(|a| self.key_hint(*a).into()).collect();
         window.set_header_keys(Rc::new(VecModel::from(header_keys)).into());
         let mut problems = self.problems.clone();
         problems.extend(key_problems);
@@ -224,9 +251,9 @@ impl App {
         s.set_font_options(Rc::new(VecModel::from(fonts)).into());
         s.set_font_name(self.config.font.as_str().into());
         s.set_font_size(self.config.font_size().round() as i32);
-        s.set_density(tr(&label(self.config.density)).into());
-        s.set_corners(tr(&label(self.config.corners)).into());
-        s.set_thumbnail_size(tr(&label(self.config.thumbnail_size)).into());
+        s.set_density(label(self.config.density).into());
+        s.set_corners(label(self.config.corners).into());
+        s.set_thumbnail_size(label(self.config.thumbnail_size).into());
         self.title_colors = theme.as_ref().map(|t| {
             (
                 to_color(&t.background),
@@ -243,36 +270,67 @@ impl App {
             problems.push(trf("Theme \"{}\" not found", &[&self.config.theme]));
         }
 
-        let built_in: Vec<String> = built_in_themes().into_iter().map(|t| t.name).collect();
-        let cards: Vec<ThemeCard> = self
-            .themes
+        // The house themes are previewed; the rest are listed by name.
+        let house: Vec<String> = built_in_themes()
+            .into_iter()
+            .take(config::HOUSE_THEMES)
+            .map(|t| t.name)
+            .collect();
+        let highlight = to_color(&self.config.color_hex(crate::annotations::COLORS[0].0));
+        let cards: Vec<ThemeCard> = house
             .iter()
+            .filter_map(|name| self.themes.iter().find(|t| t.name == *name))
             .map(|t| ThemeCard {
                 name: t.name.as_str().into(),
+                detail: THEME_TAGLINES
+                    .iter()
+                    .find(|(name, _)| *name == t.name)
+                    .map(|(_, tagline)| tr(tagline))
+                    .unwrap_or_default()
+                    .into(),
                 background: to_color(&t.background),
-                text: to_color(&t.text),
+                surface: to_color(&t.surface),
                 border: to_color(&t.border),
-                dot1: opaque(to_color(&t.accent)),
-                dot2: opaque(to_color(&t.selection)),
-                dot3: opaque(to_color(&t.match_current)),
-                custom: !built_in.contains(&t.name),
+                accent: to_color(&t.accent),
+                page: to_color(&t.page),
+                // Ink on the paper: the text of a light theme, the
+                // darkness around the page of a dark one.
+                ink: to_color(if t.dark { &t.background } else { &t.text }),
+                highlight,
             })
             .collect();
+        let others: Vec<slint::SharedString> = self
+            .themes
+            .iter()
+            .filter(|t| !house.contains(&t.name))
+            .map(|t| t.name.as_str().into())
+            .collect();
+        let name = theme.as_ref().map(|t| t.name.clone()).unwrap_or_default();
+        self.settings.set_other_theme(
+            if house.contains(&name) {
+                tr("Other themes")
+            } else {
+                name.clone()
+            }
+            .into(),
+        );
+        self.settings
+            .set_other_themes(Rc::new(VecModel::from(others)).into());
         self.settings
             .set_theme_cards(Rc::new(VecModel::from(cards)).into());
-        self.settings
-            .set_theme_name(theme.map(|t| t.name).unwrap_or_default().into());
+        self.settings.set_theme_name(name.into());
         self.settings.set_page_colors(
             match self.config.page_colors {
-                PageColors::Original => tr("Original"),
-                PageColors::Inverted => tr("Inverted"),
+                PageColors::Original => "original",
+                PageColors::Paper => "paper",
+                PageColors::Inverted => "inverted",
             }
             .into(),
         );
         self.settings.set_default_zoom(
             match self.config.default_zoom {
-                DefaultZoom::FitWidth => tr("Fit width"),
-                DefaultZoom::FitPage => tr("Fit page"),
+                DefaultZoom::FitWidth => "Fit width",
+                DefaultZoom::FitPage => "Fit page",
             }
             .into(),
         );
@@ -287,8 +345,30 @@ impl App {
 
         self.apply_highlight_colors(window);
         self.viewer.set_default_zoom(self.config.default_zoom);
-        self.viewer
-            .set_inverted(window, self.config.page_colors == PageColors::Inverted);
+        let paper = theme
+            .as_ref()
+            .and_then(|t| config::parse_color(&t.page))
+            .map(|[r, g, b, _]| [r, g, b]);
+        self.viewer.set_page_tint(
+            window,
+            match (self.config.page_colors, paper) {
+                (PageColors::Inverted, _) => PageTint::Inverted,
+                (PageColors::Paper, Some(paper)) => PageTint::Paper(paper),
+                _ => PageTint::None,
+            },
+        );
+        if self.active.is_none() {
+            self.update_subjects(window);
+        }
+    }
+
+    /// The first shortcut of an action as shown in the interface: "Ctrl K".
+    fn key_hint(&self, action: Action) -> String {
+        self.keymap
+            .keys_for(action)
+            .first()
+            .map(|keys| key_label(keys))
+            .unwrap_or_default()
     }
 
     fn apply_highlight_colors(&mut self, window: &AppWindow) {
@@ -383,10 +463,10 @@ impl App {
                 }
             }
             "page-colors" => {
-                self.config.page_colors = if value == "Inverted" {
-                    PageColors::Inverted
-                } else {
-                    PageColors::Original
+                self.config.page_colors = match value {
+                    "inverted" => PageColors::Inverted,
+                    "original" => PageColors::Original,
+                    _ => PageColors::Paper,
                 }
             }
             "default-zoom" => {
@@ -399,9 +479,10 @@ impl App {
             "restore-session" => self.config.restore_session = on,
             "font" => self.config.font = value.to_owned(),
             "font-size" => {
-                let step = if value == "-" { -1.0 } else { 1.0 };
-                self.config.font_size = (self.config.font_size() + step)
-                    .clamp(config::MIN_FONT_SIZE, config::MAX_FONT_SIZE);
+                if let Ok(size) = value.parse::<f32>() {
+                    self.config.font_size =
+                        size.clamp(config::MIN_FONT_SIZE, config::MAX_FONT_SIZE);
+                }
             }
             "density" => {
                 self.config.density = match value {
@@ -519,16 +600,47 @@ impl App {
                 true
             }
             KeyResult::Pending => true,
+            // Enter on the home screen continues the last document.
+            KeyResult::Unbound if text == "\n" && !ctrl && !alt => self.continue_reading(window),
             KeyResult::Unbound => false,
         }
+    }
+
+    /// Opens the session's most recently read document from the home
+    /// screen. Returns false when there is none, or a document is open.
+    fn continue_reading(&mut self, window: &AppWindow) -> bool {
+        if self.active.is_some() || !window.get_overlay().is_empty() {
+            return false;
+        }
+        match self.last_read_tab() {
+            Some(index) => {
+                self.activate(window, index);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The session's tab that was read last, and the page it was left on.
+    fn last_read(&self) -> Option<(usize, usize)> {
+        self.viewer.store.recent.iter().find_map(|recent| {
+            let index = self.tabs.iter().position(|t| same_file(t, &recent.path))?;
+            Some((index, recent.page))
+        })
+    }
+
+    fn last_read_tab(&self) -> Option<usize> {
+        self.last_read()
+            .map(|(index, _)| index)
+            .or((!self.tabs.is_empty()).then_some(0))
     }
 
     pub fn run(&mut self, window: &AppWindow, action: Action) {
         match action {
             Action::Open => self.open_dialog(window),
             Action::CommandPalette => self.open_palette(window),
-            Action::Search if self.viewer.page_count() > 0 => self.set_overlay(window, "search"),
-            Action::SearchSession => self.open_session_search(window),
+            Action::Search if self.viewer.page_count() > 0 => self.open_search(window, false),
+            Action::SearchSession => self.open_search(window, true),
             Action::GoToPage if self.viewer.page_count() > 0 => {
                 window.set_goto_text(ui_int(self.viewer.current_page() + 1).to_string().into());
                 self.set_overlay(window, "goto");
@@ -700,7 +812,7 @@ impl App {
     }
 
     pub fn set_overlay(&mut self, window: &AppWindow, overlay: &str) {
-        if overlay != "palette" {
+        if overlay != "search" {
             self.end_session_search(window);
         }
         // Dismissing the password prompt gives up on that document.
@@ -919,18 +1031,12 @@ impl App {
     }
 
     fn open_session_picker(&mut self, window: &AppWindow) {
-        self.end_session_search(window);
         self.palette_entries = self.session_entries();
         self.palette_entries.push(Entry {
             target: Target::Command(Action::NewSession),
             title: tr("New session…"),
             detail: String::new(),
-            keys: self
-                .keymap
-                .keys_for(Action::NewSession)
-                .into_iter()
-                .next()
-                .unwrap_or_default(),
+            keys: self.key_hint(Action::NewSession),
         });
         window.set_palette_query("".into());
         self.palette_edited(window, "");
@@ -984,10 +1090,10 @@ impl App {
         let sessions: Vec<RecentItem> = store
             .sessions
             .iter()
-            .enumerate()
-            .map(|(i, s)| RecentItem {
+            .map(|s| RecentItem {
                 title: s.name.as_str().into(),
-                folder: session_detail(s, i == current).into(),
+                // The home screen marks the current one with a dot.
+                folder: session_detail(s, false).into(),
             })
             .collect();
         self.session_items.set_vec(sessions);
@@ -1044,6 +1150,7 @@ impl App {
     /// notes, and time.
     fn update_subjects(&self, window: &AppWindow) {
         let today = study::today();
+        let last = self.last_read_tab();
         let subjects: Vec<SubjectItem> = self
             .tabs
             .iter()
@@ -1055,13 +1162,17 @@ impl App {
                     notes.outline_sections,
                 );
                 let mut detail = Vec::new();
+                if let Some(recent) = self.viewer.store.recent_for(path) {
+                    detail.push(trf("page {}", &[&(recent.page + 1)]));
+                }
                 if total > 0 {
                     detail.push(trf("{} of {} sections", &[&done, &total]));
                 }
-                detail.push(match notes.items.len() {
-                    1 => tr("1 note"),
-                    n => trf("{} notes", &[&n]),
-                });
+                match notes.items.len() {
+                    0 => {}
+                    1 => detail.push(tr("1 note")),
+                    n => detail.push(trf("{} notes", &[&n])),
+                }
                 let time = self.study.for_path(path);
                 if time >= 60 {
                     detail.push(study::format_duration(time));
@@ -1075,11 +1186,22 @@ impl App {
                         done as f32 / total as f32
                     },
                     has_progress: total > 0,
-                    active: Some(i) == self.active,
+                    // Enter opens this one.
+                    active: Some(i) == last,
                 }
             })
             .collect();
         window.set_subjects(Rc::new(VecModel::from(subjects)).into());
+        let mut greeting = tr(match study::local_hour() {
+            5..=11 => "Good morning.",
+            12..=17 => "Good afternoon.",
+            _ => "Good evening.",
+        });
+        if let Some((_, page)) = self.last_read() {
+            greeting.push(' ');
+            greeting.push_str(&trf("You stopped at page {}.", &[&(page + 1)]));
+        }
+        window.set_greeting(greeting.into());
         let mut summary = Vec::new();
         if self.config.study_timer {
             summary.push(trf(
@@ -1194,42 +1316,88 @@ impl App {
         }
     }
 
-    // ----- Session search ----------------------------------------------------
+    // ----- Search -----------------------------------------------------------
 
-    /// Back to the command palette's own search; stops the worker.
-    fn end_session_search(&mut self, window: &AppWindow) {
-        if self.session_search.take().is_some() {
-            self.viewer.search_files(0, "", Vec::new());
-            window.set_palette_placeholder(tr(PALETTE_PLACEHOLDER).into());
-        }
-    }
-
-    fn open_session_search(&mut self, window: &AppWindow) {
-        if self.tabs.is_empty() {
+    /// Opens the search panel, on this document or on every tab.
+    fn open_search(&mut self, window: &AppWindow, session: bool) {
+        if session && self.tabs.is_empty() {
             self.flash(window, &tr("No tabs in this session"));
             return;
         }
-        self.palette_entries.clear();
-        self.session_search = Some(self.next_session_search);
-        window.set_palette_placeholder(
-            match self.tabs.len() {
-                1 => tr("Search the text of the tab in this session…"),
-                n => trf("Search the text of all {} tabs in this session…", &[&n]),
-            }
-            .into(),
-        );
-        window.set_palette_query("".into());
-        self.palette_edited(window, "");
-        self.set_overlay(window, "palette");
+        self.set_overlay(window, "search");
+        self.set_search_scope(window, session);
     }
 
-    fn session_query_edited(&mut self, window: &AppWindow, query: &str) {
+    /// Switches the open search between this document and every tab.
+    pub fn set_search_scope(&mut self, window: &AppWindow, session: bool) {
+        if !session {
+            self.end_session_search(window);
+            return;
+        }
+        if self.session_search.is_none() {
+            window.set_search_scope("session".into());
+            let query = window.get_search_text();
+            self.session_query_edited(&query);
+        }
+        window.invoke_focus_overlay();
+    }
+
+    /// Back to searching the open document only; stops the worker.
+    fn end_session_search(&mut self, window: &AppWindow) {
+        if self.session_search.take().is_some() {
+            self.session_timer.stop();
+            self.viewer.search_files(0, "", Vec::new());
+            self.clear_session_hits();
+        }
+        window.set_search_scope("document".into());
+    }
+
+    fn clear_session_hits(&mut self) {
+        self.session_hits.clear();
+        self.session_selected = None;
+        self.hit_rows.clear();
+        self.search_hits.set_vec(Vec::new());
+    }
+
+    /// The search box changed: highlights the open document's matches
+    /// and, across tabs, lists the pages found.
+    pub fn search_edited(&mut self, window: &AppWindow, query: &str) {
+        if self.viewer.page_count() > 0 {
+            self.viewer.search_edited(window, query);
+        }
+        if self.session_search.is_some() {
+            self.session_query_edited(query);
+        }
+    }
+
+    /// Enter in the search box: the next match, or across tabs the next
+    /// page found.
+    pub fn search_step(&mut self, window: &AppWindow, forward: bool) {
+        let hits = self.session_hits.len();
+        if self.session_search.is_none() || hits == 0 {
+            return self.viewer.search_step(window, forward);
+        }
+        let next = match (self.session_selected, forward) {
+            (None, true) => 0,
+            (None, false) => hits - 1,
+            (Some(i), true) => (i + 1) % hits,
+            (Some(i), false) => (i + hits - 1) % hits,
+        };
+        self.open_hit(window, next);
+    }
+
+    /// A row of the session search list was clicked.
+    pub fn search_hit_clicked(&mut self, window: &AppWindow, row: usize) {
+        if let Some(Some(hit)) = self.hit_rows.get(row).copied() {
+            self.open_hit(window, hit);
+        }
+    }
+
+    fn session_query_edited(&mut self, query: &str) {
         self.next_session_search += 1;
         let id = self.next_session_search;
         self.session_search = Some(id);
-        self.palette_shown.clear();
-        self.palette_selected = 0;
-        self.update_palette(window);
+        self.clear_session_hits();
         let query = query.trim().to_owned();
         if query.chars().count() < MIN_SESSION_QUERY {
             self.session_timer.stop();
@@ -1258,43 +1426,72 @@ impl App {
         snippet: String,
         count: usize,
     ) {
-        if self.session_search != Some(id) || window.get_overlay() != "palette" {
+        if self.session_search != Some(id) || window.get_overlay() != "search" {
             return;
         }
-        let matches = match count {
-            1 => String::new(),
-            n => trf(" · {} matches", &[&n]),
-        };
-        self.palette_shown.push(Entry {
-            target: Target::Hit(path.clone(), page),
-            title: snippet,
-            detail: format!(
-                "{} · {}{matches}",
-                file_name(&path),
-                trf("p. {}", &[&(page + 1)])
-            ),
-            keys: String::new(),
-        });
-        self.update_palette(window);
+        if self.session_hits.len() >= MAX_SESSION_HITS {
+            return;
+        }
+        self.session_hits.push((path, page, snippet, count));
+        self.update_search_hits();
+    }
+
+    /// Lists the session hits under their documents, each heading with
+    /// the document's total matches.
+    fn update_search_hits(&mut self) {
+        let mut rows: Vec<SearchHit> = Vec::new();
+        self.hit_rows.clear();
+        let mut document: Option<&Path> = None;
+        for (i, (path, page, snippet, _)) in self.session_hits.iter().enumerate() {
+            if document != Some(path.as_path()) {
+                document = Some(path.as_path());
+                let total: usize = self
+                    .session_hits
+                    .iter()
+                    .filter(|(p, ..)| p == path)
+                    .map(|(.., count)| *count)
+                    .sum();
+                rows.push(SearchHit {
+                    header: true,
+                    title: file_name(path).into(),
+                    page: total.to_string().into(),
+                    current: false,
+                });
+                self.hit_rows.push(None);
+            }
+            rows.push(SearchHit {
+                header: false,
+                title: snippet.as_str().into(),
+                page: trf("p. {}", &[&(page + 1)]).into(),
+                current: self.session_selected == Some(i),
+            });
+            self.hit_rows.push(Some(i));
+        }
+        self.search_hits.set_vec(rows);
     }
 
     /// Shows a page found by the session search, opening its tab first.
-    fn open_hit(&mut self, window: &AppWindow, path: PathBuf, page: usize) {
-        let query = window.get_palette_query().trim().to_owned();
+    fn open_hit(&mut self, window: &AppWindow, hit: usize) {
+        let Some((path, page, ..)) = self.session_hits.get(hit).cloned() else {
+            return;
+        };
+        self.session_selected = Some(hit);
+        self.update_search_hits();
+        let query = window.get_search_text().trim().to_owned();
         if self.viewer.is_showing(&path) && self.viewer.page_count() > 0 {
-            self.show_hit(window, page, &query);
+            self.viewer.go_to_page(window, page);
         } else {
             self.open_at = Some((path.clone(), page, query));
             self.open_path(window, path);
         }
     }
 
+    /// The document of a session hit finished opening: go to the page
+    /// and highlight the matches, as if searched in the document.
     fn show_hit(&mut self, window: &AppWindow, page: usize, query: &str) {
         self.viewer.go_to_page(window, page);
-        // Highlight the matches, as if searched in the document.
         window.set_search_text(query.into());
         self.viewer.search_edited(window, query);
-        self.set_overlay(window, "search");
     }
 
     pub fn popup_action(&mut self, window: &AppWindow, action: &str, index: usize) {
@@ -1304,9 +1501,17 @@ impl App {
 
     fn popup_outcome(&mut self, window: &AppWindow, outcome: PopupOutcome) {
         match outcome {
-            PopupOutcome::EditNote { quote, note } => {
+            PopupOutcome::EditNote {
+                quote,
+                note,
+                color,
+                page,
+            } => {
                 window.set_note_quote(quote.into());
+                window.set_note_exists(!note.trim().is_empty());
                 window.set_note_text(note.into());
+                window.set_note_page(trf("p. {}", &[&page]).into());
+                self.show_note_color(window, color);
                 self.set_overlay(window, "note");
             }
             PopupOutcome::Copied => {
@@ -1321,6 +1526,28 @@ impl App {
         let text = window.get_note_text();
         self.viewer.note_saved(window, &text);
         self.set_overlay(window, "");
+    }
+
+    /// Removes the note being edited; its highlight stays.
+    pub fn note_deleted(&mut self, window: &AppWindow) {
+        self.viewer.note_saved(window, "");
+        self.set_overlay(window, "");
+    }
+
+    /// A color picked in the note editor.
+    pub fn note_color_clicked(&mut self, window: &AppWindow, index: usize) {
+        if self.viewer.note_color(window, index) {
+            self.show_note_color(window, index);
+        }
+    }
+
+    fn show_note_color(&self, window: &AppWindow, index: usize) {
+        let name = crate::annotations::COLORS
+            .get(index)
+            .map(|(color, _)| self.config.color_name(color))
+            .unwrap_or_default();
+        window.set_note_color(ui_int(index));
+        window.set_note_color_name(name.into());
     }
 
     /// Opens the export sheet for the current document.
@@ -1373,8 +1600,11 @@ impl App {
     }
 
     /// A color toggled in the notes filter, which the export follows.
-    pub fn note_filter_clicked(&mut self, window: &AppWindow, index: usize) {
-        self.viewer.note_filter_clicked(index);
+    pub fn note_filter_clicked(&mut self, window: &AppWindow, index: Option<usize>) {
+        match index {
+            Some(index) => self.viewer.note_filter_clicked(index),
+            None => self.viewer.note_filter_all(),
+        }
         if window.get_overlay() == "export" {
             self.update_export(window);
         }
@@ -1417,7 +1647,6 @@ impl App {
     // ----- Command palette -------------------------------------------------
 
     fn open_palette(&mut self, window: &AppWindow) {
-        self.end_session_search(window);
         let mut entries: Vec<Entry> = Vec::new();
         for (i, path) in self.tabs.iter().enumerate() {
             entries.push(Entry {
@@ -1435,20 +1664,20 @@ impl App {
                 target: Target::Command(*action),
                 title: tr(action.title()),
                 detail: String::new(),
-                keys: self
-                    .keymap
-                    .keys_for(*action)
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default(),
+                keys: self.key_hint(*action),
             });
         }
         entries.extend(self.session_entries());
         for theme in &self.themes {
+            let current = theme.name.eq_ignore_ascii_case(&self.config.theme);
             entries.push(Entry {
                 target: Target::Theme(theme.name.clone()),
                 title: trf("Theme: {}", &[&theme.name]),
-                detail: tr(if theme.dark { "Dark" } else { "Light" }),
+                detail: tr(match (current, theme.dark) {
+                    (true, _) => "in use",
+                    (false, true) => "Dark",
+                    (false, false) => "Light",
+                }),
                 keys: String::new(),
             });
         }
@@ -1474,10 +1703,8 @@ impl App {
     }
 
     pub fn palette_edited(&mut self, window: &AppWindow, query: &str) {
-        if self.session_search.is_some() {
-            return self.session_query_edited(window, query);
-        }
-        let mut shown = palette::filter(&self.palette_entries, query, PALETTE_LIMIT);
+        let ranked = palette::filter(&self.palette_entries, query, usize::MAX);
+        let mut shown = palette::grouped(ranked, PALETTE_GROUP_LIMIT, PALETTE_LIMIT);
         if let Some(page) = palette::page_query(query) {
             if page <= self.viewer.page_count() {
                 shown.insert(
@@ -1519,18 +1746,40 @@ impl App {
             Target::GoToPage(page) => self.viewer.go_to_page(window, page),
             Target::Theme(name) => self.setting(window, "theme", &name),
             Target::Session(i) => self.switch_session(window, i),
-            Target::Hit(path, page) => self.open_hit(window, path, page),
         }
     }
 
     fn update_palette(&self, window: &AppWindow) {
+        // Each group's heading goes on its first entry.
+        let mut group = None;
         let items: Vec<PaletteItem> = self
             .palette_shown
             .iter()
-            .map(|e| PaletteItem {
-                title: e.title.as_str().into(),
-                detail: e.detail.as_str().into(),
-                keys: e.keys.as_str().into(),
+            .map(|e| {
+                let here = e.target.group();
+                let header = if group == Some(here) {
+                    String::new()
+                } else {
+                    tr(here.title())
+                };
+                group = Some(here);
+                let theme = match &e.target {
+                    Target::Theme(name) => self.themes.iter().find(|t| t.name == *name),
+                    _ => None,
+                };
+                let color = |pick: fn(&ThemeDef) -> &String| {
+                    theme.map(|t| to_color(pick(t))).unwrap_or_default()
+                };
+                PaletteItem {
+                    title: e.title.as_str().into(),
+                    detail: e.detail.as_str().into(),
+                    keys: e.keys.as_str().into(),
+                    header: header.into(),
+                    swatch: theme.is_some(),
+                    color1: color(|t| &t.background),
+                    color2: color(|t| &t.page),
+                    color3: color(|t| &t.accent),
+                }
             })
             .collect();
         self.palette_items.set_vec(items);
@@ -1625,7 +1874,7 @@ const SECTION_WORDS: [&str; 6] = [
     "general session sessions restore startup tabs attach language idioma",
     "reading zoom fit width page default sidebar thumbnails vim keyboard highlights colors names markers study timer",
     "theme themes colors dark light custom",
-    "appearance interface font text size density spacing compact corners rounded thumbnails page colors inverted night dark",
+    "appearance interface font text size density spacing compact corners rounded thumbnails page colors paper inverted night dark",
     "keybindings keys shortcuts bindings vim",
     "configuration config files toml data folder reload",
 ];
@@ -1661,8 +1910,12 @@ fn session_detail(session: &Session, current: bool) -> String {
     }
 }
 
-fn opaque(color: slint::Color) -> slint::Color {
-    slint::Color::from_argb_u8(255, color.red(), color.green(), color.blue())
+/// A binding as the interface shows it: "Ctrl+Shift+F" -> "Ctrl Shift F".
+/// The plus key itself stays: "Ctrl++" -> "Ctrl +".
+fn key_label(keys: &str) -> String {
+    keys.replace("++", "+\u{1}")
+        .replace('+', " ")
+        .replace('\u{1}', "+")
 }
 
 fn apply_theme(t: &Theme<'_>, theme: &ThemeDef) {
@@ -1673,6 +1926,8 @@ fn apply_theme(t: &Theme<'_>, theme: &ThemeDef) {
     t.set_text(to_color(&theme.text));
     t.set_text_muted(to_color(&theme.text_muted));
     t.set_accent(to_color(&theme.accent));
+    t.set_page(to_color(&theme.page));
+    t.set_dark(theme.dark);
     t.set_hover(to_color(&theme.hover));
     t.set_selection(to_color(&theme.selection));
     t.set_match(to_color(&theme.match_));
@@ -1757,6 +2012,14 @@ mod tests {
     fn note_file_names_are_safe() {
         assert_eq!(safe_file_name("a: b/c?"), "a- b-c-");
         assert_eq!(safe_file_name(" ... "), "notes");
+    }
+
+    #[test]
+    fn key_labels() {
+        assert_eq!(key_label("Ctrl+Shift+F"), "Ctrl Shift F");
+        assert_eq!(key_label("Ctrl++"), "Ctrl +");
+        assert_eq!(key_label("g g"), "g g");
+        assert_eq!(key_label("F11"), "F11");
     }
 
     #[test]

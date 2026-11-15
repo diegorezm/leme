@@ -12,8 +12,42 @@ pub enum Target {
     GoToPage(usize),
     Theme(String),
     Session(usize),
-    /// A page of a document found by searching the session.
-    Hit(PathBuf, usize),
+}
+
+/// What the palette lists an entry under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Group {
+    /// "Go to page 42": on its own at the top, without a heading.
+    Page,
+    Themes,
+    Commands,
+    Tabs,
+    Sessions,
+}
+
+impl Group {
+    /// The heading shown above the group, in English.
+    pub fn title(self) -> &'static str {
+        match self {
+            Group::Page => "",
+            Group::Themes => "Themes",
+            Group::Commands => "Commands",
+            Group::Tabs => "Tabs and recent",
+            Group::Sessions => "Sessions",
+        }
+    }
+}
+
+impl Target {
+    pub fn group(&self) -> Group {
+        match self {
+            Target::GoToPage(_) => Group::Page,
+            Target::Theme(_) => Group::Themes,
+            Target::Command(_) => Group::Commands,
+            Target::Tab(_) | Target::Recent(_) => Group::Tabs,
+            Target::Session(_) => Group::Sessions,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +119,29 @@ pub fn filter(entries: &[Entry], query: &str, limit: usize) -> Vec<Entry> {
         .collect()
 }
 
+/// Brings each group's entries together, keeping the groups in the order
+/// their best entry appeared and the entries' order within each, so the
+/// best match stays first and every heading shows once. A group shows at
+/// most `per_group` entries, so one kind (a dozen themes) can't crowd out
+/// the rest; the list has at most `limit`.
+pub fn grouped(entries: Vec<Entry>, per_group: usize, limit: usize) -> Vec<Entry> {
+    let mut groups: Vec<(Group, Vec<Entry>)> = Vec::new();
+    for entry in entries {
+        let group = entry.target.group();
+        match groups.iter_mut().find(|(g, _)| *g == group) {
+            Some((_, members)) => {
+                if members.len() < per_group {
+                    members.push(entry);
+                }
+            }
+            None => groups.push((group, vec![entry])),
+        }
+    }
+    let mut shown: Vec<Entry> = groups.into_iter().flat_map(|(_, m)| m).collect();
+    shown.truncate(limit);
+    shown
+}
+
 /// "42" or ":42" means "go to page 42".
 pub fn page_query(query: &str) -> Option<usize> {
     let q = query.trim().trim_start_matches(':');
@@ -124,6 +181,31 @@ mod tests {
         let ranked = filter(&entries, "page", 10);
         assert_eq!(ranked.len(), 2);
         assert_eq!(filter(&entries, "", 2).len(), 2);
+    }
+
+    #[test]
+    fn groups_stay_together_best_first() {
+        let with = |target, title: &str| Entry {
+            target,
+            ..entry(title)
+        };
+        let ranked = vec![
+            with(Target::Theme("Noite".into()), "a"),
+            with(Target::Command(Action::Open), "b"),
+            with(Target::Theme("Velino".into()), "c"),
+            with(Target::Tab(0), "d"),
+            with(Target::Command(Action::Search), "e"),
+        ];
+        let titles =
+            |entries: Vec<Entry>| -> Vec<String> { entries.into_iter().map(|e| e.title).collect() };
+        assert_eq!(
+            titles(grouped(ranked.clone(), 5, 10)),
+            ["a", "c", "b", "e", "d"]
+        );
+        // One per group, then the overall limit.
+        assert_eq!(titles(grouped(ranked.clone(), 1, 10)), ["a", "b", "d"]);
+        assert_eq!(titles(grouped(ranked, 5, 3)), ["a", "c", "b"]);
+        assert!(grouped(Vec::new(), 5, 10).is_empty());
     }
 
     #[test]

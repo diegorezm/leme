@@ -1,15 +1,16 @@
-# Velino: warm vellum by day, with the same rubric red as Noite.
+# Velino: parchment and iron-gall ink by day, burnt sienna for the accent.
 name = "Velino"
 dark = false
 
-background = "#ede3cd"
-surface = "#e6dbc2"
-raised = "#f5eedd"
-border = "#d3c3a2"
+background = "#e6dbc3"
+surface = "#eee4cf"
+raised = "#f8f1e0"
+border = "#cdbd9c"
 text = "#2a2118"
-text_muted = "#76684f"
-accent = "#a3301d"
-hover = "#2a21180d"
-selection = "#a3301d33"
-match = "#c8902a55"
-match_current = "#a3301d77"
+text_muted = "#6b5d46"
+accent = "#98481b"
+page = "#fbf6ea"
+hover = "#2a211812"
+selection = "#98481b47"
+match = "#d9a4416b"
+match_current = "#d98a2bb8"

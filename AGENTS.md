@@ -82,7 +82,7 @@ Rejected by default:
 
 ```text
 ┌──────────────────────────────────────────────┐
-│  Document title            page 12 / 240  ⚙ │
+│ ▣ session  tab  tab  +     147%  12/240  ⌕ │
 ├──────────┬───────────────────────────────────┤
 │ Sidebar  │                                   │
 │          │           PDF page                │
