@@ -7,6 +7,7 @@ mod cache;
 mod config;
 mod export;
 mod i18n;
+mod instance;
 mod keymap;
 mod layout;
 mod nav;
@@ -85,11 +86,43 @@ pub fn download_update(window: &AppWindow, release: update::Release) {
     });
 }
 
+/// Files from later launches open as tabs here, and the window comes
+/// forward. Without the channel (e.g. no runtime folder) each launch is
+/// simply its own window, as before.
+fn listen_for_launches(window: &AppWindow) {
+    let weak = window.as_weak();
+    let _ = instance::listen(move |paths| {
+        let weak = weak.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            for path in paths {
+                with_app(|app| app.open_path(&window, path));
+            }
+            bring_to_front(&window);
+        });
+    });
+}
+
+fn bring_to_front(window: &AppWindow) {
+    use slint::winit_030::WinitWindowAccessor;
+    window.window().with_winit_window(|w| {
+        w.set_minimized(false);
+        w.focus_window();
+    });
+}
+
 fn index(value: i32) -> usize {
     usize::try_from(value).unwrap_or(0)
 }
 
 fn main() -> Result<(), slint::PlatformError> {
+    // `leme file.pdf`, which is also how "Open with" passes files.
+    let paths: Vec<std::path::PathBuf> = std::env::args_os().skip(1).map(Into::into).collect();
+    if instance::forward(&paths) {
+        return Ok(());
+    }
     config::migrate_legacy_dirs();
     let window = AppWindow::new()?;
 
@@ -114,10 +147,10 @@ fn main() -> Result<(), slint::PlatformError> {
         check_for_update(&window, false);
     }
 
-    // `leme file.pdf`, which is also how "Open with" passes files on Windows.
-    for path in std::env::args_os().skip(1) {
-        with_app(|app| app.open_path(&window, path.into()));
+    for path in paths {
+        with_app(|app| app.open_path(&window, path));
     }
+    listen_for_launches(&window);
 
     let weak = window.as_weak();
     window.on_key_pressed(move |text, ctrl, shift, alt| {
