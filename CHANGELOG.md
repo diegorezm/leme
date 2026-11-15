@@ -2,6 +2,23 @@
 
 All notable changes to Leme (called dpdf until 1.1.0). Versions follow [Semantic Versioning](https://semver.org/).
 
+## 2.0.0 — 2026-11-15
+
+### Changed
+
+- **New design.** Reworked header, reader, palette, settings, and widgets,
+  with a new Mare theme and refreshed built-in themes.
+- **Highlight colors.** New defaults: ochre *Important*, vermilion *Doubt*,
+  verdigris *Definition*, indigo *Example*, madder *Review*.
+- **Notes filter.** From *All*, click a color to see it alone, then add or
+  remove others.
+
+### Added
+
+- **Paper page colors.** `page_colors = "paper"` tints the PDF's white with the
+  theme's new `page` color.
+- **Session search from the search panel** (*All tabs*), grouped by document.
+
 ## 1.2.1 — 2026-11-15
 
 ### Changed
