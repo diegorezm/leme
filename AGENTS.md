@@ -6,7 +6,7 @@ Guidance for coding agents (and humans) working on **Leme**. Read this before ch
 
 ## 1. What Leme is and why it exists
 
-`leme` is a personal, local-first desktop PDF reader for Windows. It exists because mainstream PDF apps are bloated, slow, visually generic, and full of features that get in the way of reading.
+`leme` is a personal, local-first desktop PDF reader for Windows and Linux. It exists because mainstream PDF apps are bloated, slow, visually generic, and full of features that get in the way of reading.
 
 Leme is **not** an Acrobat/Foxit replacement or a PDF office suite. It is a **fast, minimal, beautiful, keyboard-friendly reader** that feels immediate and stays out of the way. The document is the interface: the page fills the screen, and controls, panels, and overlays stay hidden until needed.
 
@@ -40,7 +40,7 @@ The app is personal first, but code should be clean enough to open-source later.
 
 **Forbidden:** Electron, Tauri, WebViews, React/Svelte/any JS, browser engines. Performance and native feel are product requirements, not later optimizations.
 
-PDFium is loaded at runtime as `pdfium.dll`, first from the executable's directory, then from the system. `build.rs` downloads the prebuilt DLL matching the `pdfium_8125` feature (`PDFIUM_RELEASE`) once into `target/pdfium/` and copies it next to the built exe. When bumping pdfium-render, keep the feature flag and `PDFIUM_RELEASE` in sync. Tests that need PDFium skip when it can't be loaded.
+PDFium is loaded at runtime as `pdfium.dll` (`libpdfium.so` on Linux), first from the executable's directory, then from the system. `build.rs` downloads the prebuilt library for the target OS matching the `pdfium_8125` feature (`PDFIUM_RELEASE`) once into `target/pdfium/` and copies it next to the built exe. When bumping pdfium-render, keep the feature flag and `PDFIUM_RELEASE` in sync. Tests that need PDFium skip when it can't be loaded.
 
 ## 5. MVP features
 
@@ -165,7 +165,7 @@ Rules:
 - `.slint` files expose properties and callbacks; they contain no business logic beyond trivial layout/visibility bindings.
 - `pdf`, `recover`, `layout`, `cache`, `nav`, `keymap`, `palette`, `search`, `annotations`, `export`, `study`, `config`, `store` must not depend on Slint UI types, so they are unit-testable (`keymap` only uses Slint's key constants). Only `main.rs`, `app.rs`, and `viewer.rs` touch Slint types.
 - State flows one way: UI callback → `Action` → controller updates state → controller pushes properties to UI.
-- Paths: everything user-owned lives in `%APPDATA%\leme` (`config.toml`, `themes\`, `annotations\`, `state.txt`, `study.txt`); caches go in `%LOCALAPPDATA%\leme`. Never write next to the executable, in the document folder, or into the PDF.
+- Paths: everything user-owned lives in `%APPDATA%\leme` (`config.toml`, `themes\`, `annotations\`, `state.txt`, `study.txt`); caches go in `%LOCALAPPDATA%\leme`. On Linux: `$XDG_CONFIG_HOME/leme` (`~/.config/leme`) and `$XDG_CACHE_HOME/leme` (`~/.cache/leme`); see `config::data_dir`/`cache_dir`. Platform code is behind `#[cfg(windows)]`. Never write next to the executable, in the document folder, or into the PDF.
 - User files must never block startup: parse leniently, fall back to defaults, and report problems in Settings.
 - Every user-visible text is English in the source and translated: `@tr("…")` in `.slint`, `i18n::tr` / `trf` in Rust (`{}` placeholders, like `@tr`). Add each new text to `translations/pt-BR/LC_MESSAGES/leme.po`; a test checks placeholders match. Brazilian Portuguese is the default language.
 - Grow the module tree when needed; do not create empty modules ahead of time.

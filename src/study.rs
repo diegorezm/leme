@@ -159,6 +159,39 @@ pub fn today() -> i64 {
 }
 
 /// Seconds the local clock is ahead of UTC.
+#[cfg(unix)]
+fn local_offset() -> i64 {
+    // `struct tm` as glibc and musl define it.
+    #[repr(C)]
+    struct Tm {
+        fields: [i32; 9],
+        gmtoff: core::ffi::c_long,
+        zone: *const core::ffi::c_char,
+    }
+
+    extern "C" {
+        fn time(t: *mut i64) -> i64;
+        fn localtime_r(t: *const i64, out: *mut Tm) -> *mut Tm;
+    }
+
+    let mut tm = Tm {
+        fields: [0; 9],
+        gmtoff: 0,
+        zone: core::ptr::null(),
+    };
+    // SAFETY: `time` accepts null; `localtime_r` only writes a `struct tm`,
+    // which `Tm` matches, into memory we own, and returns null on failure.
+    unsafe {
+        let now = time(core::ptr::null_mut());
+        if localtime_r(&now, &mut tm).is_null() {
+            return 0;
+        }
+    }
+    i64::from(tm.gmtoff)
+}
+
+/// Seconds the local clock is ahead of UTC.
+#[cfg(windows)]
 fn local_offset() -> i64 {
     #[repr(C)]
     #[derive(Default)]

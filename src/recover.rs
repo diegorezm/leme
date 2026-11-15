@@ -492,6 +492,14 @@ fn font_dirs() -> Vec<PathBuf> {
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         dirs.push(PathBuf::from(local).join("Microsoft\\Windows\\Fonts"));
     }
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        dirs.push(home.join(".local/share/fonts"));
+        dirs.push(home.join(".fonts"));
+    }
+    if cfg!(not(windows)) {
+        dirs.push(PathBuf::from("/usr/share/fonts"));
+        dirs.push(PathBuf::from("/usr/local/share/fonts"));
+    }
     dirs
 }
 
@@ -499,12 +507,18 @@ fn font_dirs() -> Vec<PathBuf> {
 /// full, or PostScript name matches `key`. Reads only each file's name
 /// table.
 fn find_font_file(key: &str) -> Option<(PathBuf, u32)> {
-    for dir in font_dirs() {
+    // Linux keeps fonts in nested folders; Windows' are flat.
+    let mut dirs = font_dirs();
+    while let Some(dir) = dirs.pop() {
         let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
         };
         for entry in entries.flatten() {
             let path = entry.path();
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                dirs.push(path);
+                continue;
+            }
             let is_font = path.extension().is_some_and(|e| {
                 ["ttf", "otf", "ttc"]
                     .iter()

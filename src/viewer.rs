@@ -1797,10 +1797,28 @@ impl Viewer {
 }
 
 fn copy_text(text: &str) -> PopupOutcome {
-    match clipboard_win::set_clipboard_string(text) {
+    #[cfg(windows)]
+    let result = clipboard_win::set_clipboard_string(text).map_err(|_| ());
+    #[cfg(not(windows))]
+    let result = clipboard_set(text);
+    match result {
         Ok(()) => PopupOutcome::Copied,
         Err(_) => PopupOutcome::Nothing,
     }
+}
+
+/// The clipboard is owned by a background thread so the text stays
+/// available after this call, as X11 and Wayland require.
+#[cfg(not(windows))]
+fn clipboard_set(text: &str) -> Result<(), ()> {
+    use std::sync::{Mutex, OnceLock};
+    static CLIPBOARD: OnceLock<Option<Mutex<arboard::Clipboard>>> = OnceLock::new();
+    let clipboard = CLIPBOARD
+        .get_or_init(|| arboard::Clipboard::new().ok().map(Mutex::new))
+        .as_ref()
+        .ok_or(())?;
+    let mut clipboard = clipboard.lock().map_err(|_| ())?;
+    clipboard.set_text(text).map_err(|_| ())
 }
 
 fn model_or_default<T: Clone + 'static>(items: Vec<T>) -> ModelRc<T> {

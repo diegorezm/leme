@@ -430,14 +430,39 @@ pub fn parse_color(text: &str) -> Option<[u8; 4]> {
     }
 }
 
+/// User-owned files: `%APPDATA%\\leme` on Windows, `$XDG_CONFIG_HOME/leme`
+/// (or `~/.config/leme`) elsewhere.
 pub fn data_dir() -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var_os("APPDATA")?).join("leme"))
+    #[cfg(windows)]
+    let base = PathBuf::from(std::env::var_os("APPDATA")?);
+    #[cfg(not(windows))]
+    let base = xdg_dir("XDG_CONFIG_HOME", ".config")?;
+    Some(base.join("leme"))
+}
+
+/// Caches: `%LOCALAPPDATA%\\leme` on Windows, `$XDG_CACHE_HOME/leme`
+/// (or `~/.cache/leme`) elsewhere.
+pub fn cache_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let base = PathBuf::from(std::env::var_os("LOCALAPPDATA")?);
+    #[cfg(not(windows))]
+    let base = xdg_dir("XDG_CACHE_HOME", ".cache")?;
+    Some(base.join("leme"))
+}
+
+#[cfg(not(windows))]
+fn xdg_dir(var: &str, fallback: &str) -> Option<PathBuf> {
+    std::env::var_os(var)
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(fallback)))
 }
 
 /// Moves the folders of dpdf, the app's former name, to their new place
 /// once, so an upgrade keeps settings, notes, and history. Leaves both
 /// alone when the new folder already exists.
 pub fn migrate_legacy_dirs() {
+    #[cfg(windows)]
     for var in ["APPDATA", "LOCALAPPDATA"] {
         if let Some(base) = std::env::var_os(var).map(PathBuf::from) {
             let _ = move_dir(&base.join("dpdf"), &base.join("leme"));
@@ -445,6 +470,7 @@ pub fn migrate_legacy_dirs() {
     }
 }
 
+#[cfg(any(windows, test))]
 fn move_dir(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
     if from.is_dir() && !to.exists() {
         fs::rename(from, to)?;

@@ -38,7 +38,7 @@ impl Release {
 pub fn check() -> io::Result<Option<Release>> {
     // /releases/latest redirects to /releases/tag/v<version>.
     let output = curl()
-        .args(["-o", "NUL", "-w", "%{redirect_url}"])
+        .args(["-o", NULL_DEVICE, "-w", "%{redirect_url}"])
         .arg(format!("{REPO}/releases/latest"))
         .output()?;
     if !output.status.success() {
@@ -92,6 +92,9 @@ pub fn install(installer: &Path) -> io::Result<()> {
 /// Whether this copy was installed by the installer, rather than unzipped.
 /// Only installed copies update in place.
 pub fn installed() -> bool {
+    if cfg!(not(windows)) {
+        return false;
+    }
     std::env::current_exe()
         .ok()
         .and_then(|exe| Some(exe.parent()?.join("unins000.exe")))
@@ -100,7 +103,11 @@ pub fn installed() -> bool {
 
 /// Opens a release page in the default browser.
 pub fn open_page(release: &Release) {
-    let _ = Command::new("explorer").arg(release.page_url()).spawn();
+    #[cfg(windows)]
+    let opener = "explorer";
+    #[cfg(not(windows))]
+    let opener = "xdg-open";
+    let _ = Command::new(opener).arg(release.page_url()).spawn();
 }
 
 /// The version the user chose to skip, if any.
@@ -110,21 +117,27 @@ pub fn skipped() -> Option<String> {
 }
 
 pub fn skip(release: &Release) -> io::Result<()> {
-    let path = skip_file().ok_or_else(|| io::Error::other("LOCALAPPDATA is not set"))?;
+    let path = skip_file().ok_or_else(|| io::Error::other("no cache folder"))?;
     crate::config::write_atomic(&path, &release.version)
 }
 
 fn skip_file() -> Option<PathBuf> {
-    Some(
-        PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
-            .join("leme")
-            .join("skipped-update.txt"),
-    )
+    Some(crate::config::cache_dir()?.join("skipped-update.txt"))
 }
 
+#[cfg(windows)]
+const NULL_DEVICE: &str = "NUL";
+#[cfg(not(windows))]
+const NULL_DEVICE: &str = "/dev/null";
+
 fn curl() -> Command {
-    let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
-    let mut command = Command::new(Path::new(&system).join("System32").join("curl.exe"));
+    #[cfg(windows)]
+    let mut command = {
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        Command::new(Path::new(&system).join("System32").join("curl.exe"))
+    };
+    #[cfg(not(windows))]
+    let mut command = Command::new("curl");
     command.args([
         "-sSf",
         "--proto",
@@ -138,6 +151,18 @@ fn curl() -> Command {
     command
 }
 
+#[cfg(not(windows))]
+fn sha256(path: &Path) -> io::Result<String> {
+    let output = Command::new("sha256sum").arg(path).output()?;
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .next()
+        .map(str::to_lowercase)
+        .filter(|hash| hash.len() == 64)
+        .ok_or_else(|| io::Error::other("couldn't hash the download"))
+}
+
+#[cfg(windows)]
 fn sha256(path: &Path) -> io::Result<String> {
     let mut command = Command::new("certutil");
     command.arg("-hashfile").arg(path).arg("SHA256");
@@ -152,7 +177,11 @@ fn sha256(path: &Path) -> io::Result<String> {
         .ok_or_else(|| io::Error::other("couldn't hash the download"))
 }
 
+#[cfg(not(windows))]
+fn no_window(_command: &mut Command) {}
+
 /// Keeps console tools from flashing a window.
+#[cfg(windows)]
 fn no_window(command: &mut Command) {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;

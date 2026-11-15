@@ -2,7 +2,7 @@
 name = "leme"
 version = "1.2.0"
 edition = "2021"
-description = "A fast, minimal, local-first PDF reader for Windows, built with Rust and Slint."
+description = "A fast, minimal, local-first PDF reader for Windows and Linux, built with Rust and Slint."
 license = "MIT"
 repository = "https://github.com/diegorezm/leme"
 publish = false
@@ -17,11 +17,17 @@ rfd = "0.18"
 # Config, themes, and annotations are TOML files users can edit by hand.
 serde = { version = "1", features = ["derive"] }
 toml = "1.2"
-# Copy selected text.
-clipboard-win = "5.4"
 pdfium-render = { version = "0.9.5", default-features = false, features = ["pdfium_8125", "thread_safe"] }
 lopdf = { version = "0.47.0", default-features = false }
 ttf-parser = { version = "0.25", default-features = false, features = ["std", "opentype-layout", "glyph-names"] }
+
+# Copy selected text.
+[target.'cfg(windows)'.dependencies]
+clipboard-win = "5.4"
+
+# Copy selected text on X11 and Wayland, where no system call does it.
+[target.'cfg(not(windows))'.dependencies]
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 
 [build-dependencies]
 slint-build = "1.18"

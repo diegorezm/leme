@@ -18,10 +18,13 @@ fn main() {
 
     println!("cargo:rerun-if-changed=assets/icon.ico");
 
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        if let Err(err) = provide_pdfium() {
-            println!("cargo:warning=could not provide pdfium.dll: {err}");
+    let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if let Some(lib) = Pdfium::for_os(&os) {
+        if let Err(err) = provide_pdfium(&lib) {
+            println!("cargo:warning=could not provide {}: {err}", lib.file);
         }
+    }
+    if os == "windows" {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("assets/icon.ico");
         if let Err(err) = res.compile() {
@@ -30,25 +33,51 @@ fn main() {
     }
 }
 
-/// Downloads the prebuilt PDFium DLL once (into `target/pdfium/`) and copies
-/// it next to the built executable. Uses the curl and tar that ship with Windows.
-fn provide_pdfium() -> Result<(), String> {
+/// The prebuilt PDFium archive for a target OS and where its library sits.
+struct Pdfium {
+    archive: &'static str,
+    dir: &'static str,
+    file: &'static str,
+}
+
+impl Pdfium {
+    fn for_os(os: &str) -> Option<Self> {
+        match os {
+            "windows" => Some(Self {
+                archive: "pdfium-win-x64.tgz",
+                dir: "bin",
+                file: "pdfium.dll",
+            }),
+            "linux" => Some(Self {
+                archive: "pdfium-linux-x64.tgz",
+                dir: "lib",
+                file: "libpdfium.so",
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Downloads the prebuilt PDFium library once (into `target/pdfium/`) and copies
+/// it next to the built executable. Uses curl and tar (both ship with Windows).
+fn provide_pdfium(lib: &Pdfium) -> Result<(), String> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").map_err(|e| e.to_string())?);
-    // OUT_DIR is target/<profile>/build/<pkg>/out
+    // OUT_DIR is target/<profile>/build/<pkg>[/<hash>]/out
     let profile_dir = out_dir
         .ancestors()
-        .nth(3)
+        .find(|dir| dir.file_name().is_some_and(|name| name == "build"))
+        .and_then(Path::parent)
         .ok_or("unexpected OUT_DIR layout")?;
     let target_dir = profile_dir.parent().ok_or("unexpected OUT_DIR layout")?;
 
     let cache_dir = target_dir
         .join("pdfium")
         .join(PDFIUM_RELEASE.replace('/', "-"));
-    let dll = cache_dir.join("bin").join("pdfium.dll");
+    let dll = cache_dir.join(lib.dir).join(lib.file);
     if !dll.exists() {
-        download(&cache_dir)?;
+        download(&cache_dir, lib.archive)?;
     }
-    let dest = profile_dir.join("pdfium.dll");
+    let dest = profile_dir.join(lib.file);
     // Skip when already in place: the DLL is locked while Leme is running.
     let size = |p: &Path| fs::metadata(p).map(|m| m.len()).ok();
     if size(&dest).is_none() || size(&dest) != size(&dll) {
@@ -57,11 +86,11 @@ fn provide_pdfium() -> Result<(), String> {
     Ok(())
 }
 
-fn download(cache_dir: &Path) -> Result<(), String> {
+fn download(cache_dir: &Path, name: &str) -> Result<(), String> {
     fs::create_dir_all(cache_dir).map_err(|e| e.to_string())?;
-    let archive = cache_dir.join("pdfium-win-x64.tgz");
+    let archive = cache_dir.join(name);
     let url = format!(
-        "https://github.com/bblanchon/pdfium-binaries/releases/download/{PDFIUM_RELEASE}/pdfium-win-x64.tgz"
+        "https://github.com/bblanchon/pdfium-binaries/releases/download/{PDFIUM_RELEASE}/{name}"
     );
     run(Command::new("curl")
         .args(["-sSfL", "-o"])
