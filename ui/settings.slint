@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { KeyRow, ThemeCard, HighlightRow } from "structs.slint";
+import { KeyRow, ThemeCard, HighlightRow, LibraryRow } from "structs.slint";
 import { Toggle, Select, Segmented, Button, QuietButton, Field, Icon, Kbd, Label } from "widgets.slint";
 
 component NavItem inherits Rectangle {
@@ -220,6 +220,9 @@ export component SettingsView inherits Rectangle {
     in property <bool> show-appearance: true;
     in property <bool> show-keys: true;
     in property <bool> show-files: true;
+    in property <bool> show-libraries: true;
+    in property <[LibraryRow]> library-rows;
+    in property <[string]> library-icons;
     in-out property <string> query <=> search.text;
     // key/value pairs, or commands with an empty value.
     callback set(string, string);
@@ -312,6 +315,14 @@ export component SettingsView inherits Rectangle {
                         root.section = "keys";
                     }
                 }
+                if root.show-libraries: NavItem {
+                    text: @tr("Libraries");
+                    icon: "book";
+                    active: root.section == "libraries";
+                    clicked => {
+                        root.section = "libraries";
+                    }
+                }
                 if root.show-files: NavItem {
                     text: @tr("Files");
                     icon: "file";
@@ -359,7 +370,7 @@ export component SettingsView inherits Rectangle {
 
                     HorizontalLayout {
                         Text {
-                            text: root.section == "general" ? @tr("General") : root.section == "reading" ? @tr("Reading and study") : root.appearance ? @tr("Appearance") : root.section == "keys" ? @tr("Keys") : root.section == "files" ? @tr("Files") : @tr("About Leme");
+                            text: root.section == "general" ? @tr("General") : root.section == "reading" ? @tr("Reading and study") : root.appearance ? @tr("Appearance") : root.section == "keys" ? @tr("Keys") : root.section == "files" ? @tr("Files") : root.section == "libraries" ? @tr("Libraries") : @tr("About Leme");
                             color: Theme.text;
                             font-size: Theme.font-size-title;
                             font-weight: 600;
@@ -766,6 +777,128 @@ export component SettingsView inherits Rectangle {
                                     vertical-alignment: center;
                                     horizontal-alignment: right;
                                     overflow: elide;
+                                }
+                            }
+                        }
+                    }
+
+                    if root.section == "libraries": VerticalLayout {
+                        spacing: 24px;
+
+                        Group {
+                            title: @tr("New library");
+
+                            Row {
+                                title: @tr("Name");
+                                description: @tr("Libraries keep documents for every session: saved pages and PDFs. Laws saved from planalto.gov.br go into Leis on their own.");
+                                HorizontalLayout {
+                                    spacing: 6px;
+
+                                    Rectangle {
+                                        width: 180px;
+                                        height: 30px;
+                                        border-radius: Theme.radius;
+                                        border-width: 1px;
+                                        border-color: new-name.has-focus ? Theme.accent : Theme.border;
+
+                                        new-name := Field {
+                                            x: 8px;
+                                            width: parent.width - 16px;
+                                            font-size: Theme.font-size-ui;
+                                            accepted => {
+                                                root.set("library-new", self.text);
+                                                self.text = "";
+                                            }
+                                        }
+                                    }
+                                    Button {
+                                        text: @tr("Create");
+                                        clicked => {
+                                            root.set("library-new", new-name.text);
+                                            new-name.text = "";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        for library[i] in root.library-rows: Group {
+                            title: library.name;
+
+                            Row {
+                                title: @tr("Name");
+                                description: library.count;
+                                Rectangle {
+                                    width: 220px;
+                                    height: 30px;
+                                    border-radius: Theme.radius;
+                                    border-width: 1px;
+                                    border-color: rename.has-focus ? Theme.accent : Theme.border;
+
+                                    rename := Field {
+                                        x: 8px;
+                                        width: parent.width - 16px;
+                                        text: library.name;
+                                        font-size: Theme.font-size-ui;
+                                        accepted => {
+                                            root.set("library-rename", "\{i}\n\{self.text}");
+                                        }
+                                    }
+                                }
+                            }
+                            Row {
+                                title: @tr("Icon");
+                                description: library.has-image ? @tr("Your picture is shown instead of the icon.") : "";
+                                HorizontalLayout {
+                                    spacing: 8px;
+
+                                    if library.has-image: Image {
+                                        y: (parent.height - self.height) / 2;
+                                        width: 22px;
+                                        height: 22px;
+                                        source: library.image;
+                                        image-fit: cover;
+                                    }
+                                    if !library.has-image: Icon {
+                                        y: (parent.height - self.height) / 2;
+                                        width: 16px;
+                                        height: 16px;
+                                        name: library.icon;
+                                        color: Theme.accent;
+                                    }
+                                    Select {
+                                        options: root.library-icons;
+                                        value: library.icon-title;
+                                        selected(value) => {
+                                            root.set("library-icon", "\{i}\n\{value}");
+                                        }
+                                    }
+                                    Button {
+                                        text: library.has-image ? @tr("Remove picture") : @tr("Picture…");
+                                        clicked => {
+                                            root.set(library.has-image ? "library-clear-picture" : "library-picture", "\{i}");
+                                        }
+                                    }
+                                }
+                            }
+                            for doc[j] in library.documents: Row {
+                                title: doc;
+                                QuietButton {
+                                    icon: "close";
+                                    tip: @tr("Remove from the library (the file stays)");
+                                    clicked => {
+                                        root.set("library-remove-doc", "\{i}\n\{j}");
+                                    }
+                                }
+                            }
+                            Row {
+                                title: @tr("Delete library");
+                                description: @tr("Its documents stay where they are.");
+                                Button {
+                                    text: @tr("Delete");
+                                    clicked => {
+                                        root.set("library-delete", "\{i}");
+                                    }
                                 }
                             }
                         }

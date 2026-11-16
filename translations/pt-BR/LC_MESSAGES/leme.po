@@ -883,3 +883,33 @@ msgstr "{}, art. {}"
 
 msgid "downloads from planalto.gov.br"
 msgstr "baixa do planalto.gov.br"
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "Create"
+msgstr "Criar"
+
+msgid "Icon"
+msgstr "Ícone"
+
+msgid "Your picture is shown instead of the icon."
+msgstr "Sua imagem aparece no lugar do ícone."
+
+msgid "Remove picture"
+msgstr "Remover imagem"
+
+msgid "Picture…"
+msgstr "Imagem…"
+
+msgid "Remove from the library (the file stays)"
+msgstr "Remover da biblioteca (o arquivo continua)"
+
+msgid "Delete library"
+msgstr "Excluir biblioteca"
+
+msgid "Its documents stay where they are."
+msgstr "Os documentos continuam onde estão."
+
+msgid "Libraries keep documents for every session: saved pages and PDFs. Laws saved from planalto.gov.br go into Leis on their own."
+msgstr "As bibliotecas guardam documentos para todas as sessões: páginas salvas e PDFs. Leis salvas do planalto.gov.br entram em Leis sozinhas."

@@ -27,7 +27,7 @@ use crate::viewer::PageBuffer;
 use crate::viewer::{file_name, to_color, ui_int, PopupOutcome, SidePanel, Viewer};
 use crate::web;
 use crate::{
-    AppWindow, HighlightRow, KeyRow, LibraryItem, PaletteItem, RecentItem, SearchHit,
+    AppWindow, HighlightRow, KeyRow, LibraryItem, LibraryRow, PaletteItem, RecentItem, SearchHit,
     SettingsWindow, SubjectItem, TabItem, Theme, ThemeCard,
 };
 const PALETTE_LIMIT: usize = 12;
@@ -441,7 +441,8 @@ impl App {
     /// Filters the settings sections by the search box and jumps to the
     /// first match.
     pub fn settings_searched(&mut self, query: &str) {
-        let [general, reading, theme, appearance, keys, files] = matching_sections(query);
+        let [general, reading, theme, appearance, keys, files, libraries] =
+            matching_sections(query);
         let s = &self.settings;
         s.set_show_general(general);
         s.set_show_reading(reading);
@@ -449,6 +450,7 @@ impl App {
         s.set_show_appearance(appearance);
         s.set_show_keys(keys);
         s.set_show_files(files);
+        s.set_show_libraries(libraries);
         let first = [
             (general, "general"),
             (reading, "reading"),
@@ -456,6 +458,7 @@ impl App {
             (appearance, "appearance"),
             (keys, "keys"),
             (files, "files"),
+            (libraries, "libraries"),
         ]
         .into_iter()
         .find(|(shown, _)| *shown);
@@ -486,6 +489,9 @@ impl App {
 
     /// A change from the settings screen.
     pub fn setting(&mut self, window: &AppWindow, key: &str, value: &str) {
+        if let Some(change) = key.strip_prefix("library-") {
+            return self.library_setting(window, change, value);
+        }
         // Choices arrive as shown, in the interface language.
         let english = untr(value);
         let value = english.as_str();
@@ -2246,6 +2252,55 @@ impl App {
         }
     }
 
+    /// A change from the Libraries section of Settings. `value` is the
+    /// library's index, then (after a line break) a name, an icon, or a
+    /// document's index.
+    fn library_setting(&mut self, window: &AppWindow, change: &str, value: &str) {
+        let (index, arg) = value.split_once('\n').unwrap_or((value, ""));
+        let i: usize = index.parse().unwrap_or(usize::MAX);
+        match change {
+            "new" => {
+                if self.libraries.create(value, library::ICONS[0]).is_none() {
+                    return;
+                }
+            }
+            "rename" => {
+                if !self.libraries.rename(i, arg) {
+                    self.flash(window, &tr("A library with that name already exists"));
+                }
+            }
+            "icon" => {
+                let icon = library::ICONS
+                    .iter()
+                    .find(|icon| tr(icon_title(icon)) == arg);
+                if let (Some(icon), Some(library)) = (icon, self.libraries.items.get_mut(i)) {
+                    library.icon = (*icon).to_owned();
+                    library.image = None;
+                }
+            }
+            "picture" => return self.library_action(window, i, LibraryAction::Picture),
+            "clear-picture" => {
+                if let Some(library) = self.libraries.items.get_mut(i) {
+                    library.image = None;
+                }
+            }
+            "remove-doc" => {
+                let doc = arg
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|j| self.libraries.items.get(i)?.documents.get(j).cloned());
+                if let Some(doc) = doc {
+                    self.libraries.remove(i, &doc);
+                }
+            }
+            "delete" if i < self.libraries.items.len() => {
+                self.libraries.items.remove(i);
+            }
+            _ => return,
+        }
+        self.libraries_changed(window);
+    }
+
     fn libraries_changed(&mut self, window: &AppWindow) {
         if let Some(path) = libraries_path() {
             if let Err(err) = self.libraries.save(&path) {
@@ -2275,6 +2330,37 @@ impl App {
             })
             .collect();
         window.set_libraries(Rc::new(VecModel::from(items)).into());
+
+        let rows: Vec<LibraryRow> = self
+            .libraries
+            .items
+            .iter()
+            .map(|l| {
+                let image = l
+                    .image
+                    .as_deref()
+                    .and_then(|p| slint::Image::load_from_path(p).ok());
+                let documents: Vec<slint::SharedString> =
+                    l.documents.iter().map(|d| file_name(d).into()).collect();
+                LibraryRow {
+                    name: l.name.as_str().into(),
+                    icon: l.icon.as_str().into(),
+                    icon_title: tr(icon_title(&l.icon)).into(),
+                    has_image: image.is_some(),
+                    image: image.unwrap_or_default(),
+                    count: document_count(l.documents.len()).into(),
+                    documents: Rc::new(VecModel::from(documents)).into(),
+                }
+            })
+            .collect();
+        self.settings
+            .set_library_rows(Rc::new(VecModel::from(rows)).into());
+        let icons: Vec<slint::SharedString> = library::ICONS
+            .iter()
+            .map(|i| tr(icon_title(i)).into())
+            .collect();
+        self.settings
+            .set_library_icons(Rc::new(VecModel::from(icons)).into());
     }
 
     /// Saved laws go into the Laws library, made on first use.
@@ -2441,16 +2527,17 @@ impl App {
 
 /// Words each settings section answers to, for the settings search box:
 /// general, reading, theme, appearance, keybindings, files.
-const SECTION_WORDS: [&str; 6] = [
+const SECTION_WORDS: [&str; 7] = [
     "general session sessions restore startup tabs attach language idioma",
     "reading zoom fit width page default sidebar thumbnails vim keyboard highlights colors names markers study timer",
     "theme themes colors dark light custom",
     "appearance interface font text size density spacing compact corners rounded thumbnails page colors paper inverted night dark",
     "keybindings keys shortcuts bindings vim",
     "configuration config files toml data folder reload",
+    "libraries library collections documents laws leis icon picture bibliotecas",
 ];
 
-fn matching_sections(query: &str) -> [bool; 6] {
+fn matching_sections(query: &str) -> [bool; 7] {
     let query = query.trim();
     // Every action is listed under Keybindings, so match those too.
     let action_match = Action::ALL.iter().any(|a| {
@@ -2623,15 +2710,15 @@ mod tests {
 
     #[test]
     fn settings_search() {
-        assert_eq!(matching_sections(""), [true; 6]);
+        assert_eq!(matching_sections(""), [true; 7]);
         assert_eq!(
             matching_sections("vim"),
-            [false, true, false, false, true, false]
+            [false, true, false, false, true, false, false]
         );
         let theme = matching_sections("dark");
         assert!(theme[2] && theme[3] && !theme[0]);
         // Action titles land in Keybindings.
         assert!(matching_sections("export notes")[4]);
-        assert_eq!(matching_sections("zzzqqq"), [false; 6]);
+        assert_eq!(matching_sections("zzzqqq"), [false; 7]);
     }
 }

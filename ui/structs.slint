@@ -88,6 +88,17 @@ export struct LibraryItem {
     count: string,
 }
 
+// A library in Settings, with its documents' names.
+export struct LibraryRow {
+    name: string,
+    icon: string,
+    icon-title: string,
+    image: image,
+    has-image: bool,
+    count: string,
+    documents: [string],
+}
+
 export struct RecentItem {
     title: string,
     folder: string,

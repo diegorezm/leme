@@ -1,12 +1,12 @@
 import { Theme } from "theme.slint";
-import { PageView, ThumbView, RecentItem, TabItem, PaletteItem, KeyRow, ThemeCard, SideItem, NoteFilter, SubjectItem, HighlightRow, SearchHit, LibraryItem } from "structs.slint";
+import { PageView, ThumbView, RecentItem, TabItem, PaletteItem, KeyRow, ThemeCard, SideItem, NoteFilter, SubjectItem, HighlightRow, SearchHit, LibraryItem, LibraryRow } from "structs.slint";
 import { Panel, Scrim, Field, QuietButton, Chip, Icon, Kbd, Label, Toggle, Button } from "widgets.slint";
 import { Sidebar, ReadingArea, StartScreen, TabBar } from "reader.slint";
 import { Palette } from "palette.slint";
 import { SettingsView } from "settings.slint";
 
 export { Theme }
-export { Highlight, Mark, PageView, ThumbView, RecentItem, TabItem, PaletteItem, KeyRow, ThemeCard, SideItem, NoteFilter, SubjectItem, HighlightRow, SearchHit, LibraryItem } from "structs.slint";
+export { Highlight, Mark, PageView, ThumbView, RecentItem, TabItem, PaletteItem, KeyRow, ThemeCard, SideItem, NoteFilter, SubjectItem, HighlightRow, SearchHit, LibraryItem, LibraryRow } from "structs.slint";
 
 // One line of the zoom menu.
 component MenuRow inherits Rectangle {
@@ -1593,6 +1593,9 @@ export component SettingsWindow inherits Window {
     in property <bool> show-appearance: true;
     in property <bool> show-keys: true;
     in property <bool> show-files: true;
+    in property <bool> show-libraries: true;
+    in property <[LibraryRow]> library-rows;
+    in property <[string]> library-icons;
     callback set(string, string);
     callback searched(string);
     callback close-requested();
@@ -1618,6 +1621,9 @@ export component SettingsWindow inherits Window {
             show-appearance: root.show-appearance;
             show-keys: root.show-keys;
             show-files: root.show-files;
+            show-libraries: root.show-libraries;
+            library-rows: root.library-rows;
+            library-icons: root.library-icons;
             theme: root.theme-name;
             page-colors: root.page-colors;
             font-options: root.font-options;
