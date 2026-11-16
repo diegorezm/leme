@@ -406,3 +406,42 @@ export component Select inherits Rectangle {
         }
     }
 }
+
+// A thin scrollbar for a Flickable: shows where the view is in the
+// content, and drags it. Hidden when everything fits.
+export component Scrollbar inherits Rectangle {
+    // The Flickable's viewport height and y (zero or negative).
+    in property <length> content-height;
+    in-out property <length> offset;
+
+    property <length> overflow: max(1px, root.content-height - root.height);
+    property <length> thumb-height: max(28px, root.height * root.height / max(1px, root.content-height));
+    property <length> start-offset;
+
+    visible: root.content-height > root.height + 1px;
+    width: 10px;
+
+    Rectangle {
+        x: parent.width - self.width - 2px;
+        y: (root.height - root.thumb-height) * max(0, min(1, -root.offset / root.overflow));
+        width: touch.has-hover || touch.pressed ? 6px : 4px;
+        height: root.thumb-height;
+        border-radius: self.width / 2;
+        background: Theme.text-muted.with-alpha(touch.pressed ? 0.6 : touch.has-hover ? 0.45 : 0.28);
+    }
+
+    touch := TouchArea {
+        mouse-cursor: default;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down {
+                root.start-offset = root.offset;
+            }
+        }
+        moved => {
+            if self.pressed {
+                let travel = max(1px, root.height - root.thumb-height);
+                root.offset = max(-root.overflow, min(0px, root.start-offset - (self.mouse-y - self.pressed-y) * root.overflow / travel));
+            }
+        }
+    }
+}

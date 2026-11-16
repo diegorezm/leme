@@ -251,6 +251,8 @@ fn main() -> Result<(), slint::PlatformError> {
         .switch_session(&win, index(i)));
     on!(window.on_prompt_accepted, |app, win, text| app
         .prompt_accepted(&win, &text));
+    on!(window.on_side_panel_resized, |app, win, width| app
+        .side_panel_resized(&win, width));
     on!(window.on_header_action, |app, win, action| {
         let action = match action.as_str() {
             "home" => Action::Home,

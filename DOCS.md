@@ -19,7 +19,7 @@ The defaults. All of them can be changed (see [Customizing](#customizing)), and 
 | `Ctrl+P`                                 | Go to page, or to an article of a law (`art. 37`)                       |
 | `Ctrl++` / `Ctrl+-` / `Ctrl`+wheel       | Zoom in / out                                                           |
 | `Ctrl+0` or `Ctrl+1` / `Ctrl+2`          | Fit width / fit page                                                    |
-| `Ctrl+B`                                 | Toggle sidebar                                                          |
+| `Ctrl+B`                                 | Toggle sidebar (drag its edge to resize; double-click it to reset)      |
 | `Ctrl+Shift+T` / `O` / `A`               | Sidebar: thumbnails / outline / notes                                   |
 | `Ctrl+.`                                 | Focus mode                                                              |
 | `F11`                                    | Fullscreen                                                              |

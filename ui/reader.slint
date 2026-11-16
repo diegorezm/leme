@@ -1,6 +1,6 @@
 import { Theme } from "theme.slint";
 import { PageView, ThumbView, RecentItem, TabItem, SideItem, NoteFilter, SubjectItem } from "structs.slint";
-import { Icon, QuietButton, Kbd, Label } from "widgets.slint";
+import { Icon, QuietButton, Kbd, Label, Scrollbar } from "widgets.slint";
 
 // A filter of the notes list: one highlight color, or all of them.
 component FilterChip inherits Rectangle {
@@ -66,6 +66,9 @@ export component Sidebar inherits Rectangle {
     // Shortcuts: mark section, export notes.
     in property <string> mark-keys;
     in property <string> export-keys;
+    // Width the user dragged the panel to; 0 is the default for its mode.
+    in property <length> panel-width;
+    callback resized(length);
     callback clicked(int);
     callback filter-clicked(int);
     callback filter-all-clicked();
@@ -80,7 +83,8 @@ export component Sidebar inherits Rectangle {
 
     // The thumbnail strip keeps the width Rust laid it out for; the text
     // panels need room for a line of reading.
-    width: root.mode == "thumbs" ? max(Theme.sidebar-width, 248px) : root.mode == "outline" ? 264px : 300px;
+    property <length> drag-width;
+    width: root.drag-width > 0 ? root.drag-width : root.panel-width > 0 ? root.panel-width : root.mode == "thumbs" ? max(Theme.sidebar-width, 248px) : root.mode == "outline" ? 264px : 300px;
     background: Theme.surface;
 
     VerticalLayout {
@@ -137,8 +141,9 @@ export component Sidebar inherits Rectangle {
             }
         }
 
-        if root.mode == "outline": Flickable {
-            vertical-stretch: 1;
+        if root.mode == "outline": Rectangle {
+          vertical-stretch: 1;
+          outline-flick := Flickable {
             content-width: self.width;
             content-height: outline.preferred-height;
 
@@ -218,6 +223,13 @@ export component Sidebar inherits Rectangle {
                     }
                 }
             }
+          }
+          Scrollbar {
+              x: parent.width - self.width;
+              height: parent.height;
+              content-height: outline-flick.content-height;
+              offset <=> outline-flick.content-y;
+          }
         }
 
         if root.mode == "outline" && root.progress-text != "": Rectangle {
@@ -307,8 +319,9 @@ export component Sidebar inherits Rectangle {
             }
         }
 
-        if root.mode == "notes": Flickable {
-            vertical-stretch: 1;
+        if root.mode == "notes": Rectangle {
+          vertical-stretch: 1;
+          notes-flick := Flickable {
             content-width: self.width;
             content-height: notes.preferred-height;
 
@@ -400,6 +413,13 @@ export component Sidebar inherits Rectangle {
                     }
                 }
             }
+          }
+          Scrollbar {
+              x: parent.width - self.width;
+              height: parent.height;
+              content-height: notes-flick.content-height;
+              offset <=> notes-flick.content-y;
+          }
         }
 
         if root.mode == "notes" && root.filters.length > 0: Rectangle {
@@ -450,7 +470,7 @@ export component Sidebar inherits Rectangle {
 
             Flickable {
                 x: (parent.width - self.width) / 2;
-                width: Theme.sidebar-width;
+                width: min(Theme.sidebar-width, parent.width);
                 content-height: root.content-height;
                 content-y <=> root.viewport-y;
 
@@ -496,6 +516,13 @@ export component Sidebar inherits Rectangle {
                     }
                 }
             }
+
+            Scrollbar {
+                x: parent.width - self.width;
+                height: parent.height;
+                content-height: root.content-height;
+                offset <=> root.viewport-y;
+            }
         }
     }
 
@@ -503,6 +530,27 @@ export component Sidebar inherits Rectangle {
         x: parent.width - 1px;
         width: 1px;
         background: Theme.border;
+    }
+
+    // Drag the edge to resize; double-click for the default width.
+    TouchArea {
+        x: parent.width - 4px;
+        width: 7px;
+        mouse-cursor: ew-resize;
+        moved => {
+            if self.pressed {
+                root.drag-width = max(200px, min(720px, root.width + self.mouse-x - self.pressed-x));
+            }
+        }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.up && root.drag-width > 0 {
+                root.resized(root.drag-width);
+                root.drag-width = 0;
+            }
+        }
+        double-clicked => {
+            root.resized(0);
+        }
     }
 }
 

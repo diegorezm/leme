@@ -118,6 +118,9 @@ pub struct Config {
     pub notes_folder: String,
     /// Shows study time in the header and records it per day.
     pub study_timer: bool,
+    /// Side panel width in pixels, set by dragging its edge; 0 is
+    /// automatic (from the thumbnail size).
+    pub side_panel_width: f32,
     /// Saved law pages show revoked (struck-through) text instead of
     /// hiding it. Each page can switch from the palette.
     pub show_revoked: bool,
@@ -151,6 +154,7 @@ impl Default for Config {
             vim: false,
             notes_folder: String::new(),
             study_timer: true,
+            side_panel_width: 0.0,
             show_revoked: false,
             color_names: BTreeMap::new(),
             highlight_colors: BTreeMap::new(),
@@ -212,10 +216,16 @@ impl Config {
                 Corners::Rounded => 6.0,
                 Corners::Round => 11.0,
             },
-            sidebar_width: match self.thumbnail_size {
-                ThumbnailSize::Small => 140.0,
-                ThumbnailSize::Medium => 180.0,
-                ThumbnailSize::Large => 240.0,
+            // A dragged panel fits its thumbnails, with room for the
+            // color dots and the scrollbar.
+            sidebar_width: if self.side_panel_width > 0.0 {
+                (self.side_panel_width.clamp(200.0, 720.0) - 56.0).max(120.0)
+            } else {
+                match self.thumbnail_size {
+                    ThumbnailSize::Small => 140.0,
+                    ThumbnailSize::Medium => 180.0,
+                    ThumbnailSize::Large => 240.0,
+                }
             },
         }
     }

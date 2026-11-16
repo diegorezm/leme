@@ -250,6 +250,7 @@ impl App {
             t.set_sidebar_width(metrics.sidebar_width);
         }
         self.viewer.set_sidebar_width(window, metrics.sidebar_width);
+        window.set_side_panel_width(self.config.side_panel_width);
         let mut fonts: Vec<slint::SharedString> =
             config::FONTS.iter().map(|f| (*f).into()).collect();
         if !config::FONTS.contains(&self.config.font.as_str()) {
@@ -455,6 +456,17 @@ impl App {
         if let Err(err) = self.config.save() {
             window.set_status(trf("Couldn't save config: {}", &[&err]).into());
         }
+    }
+
+    /// The side panel was dragged to `width` (0: back to automatic).
+    pub fn side_panel_resized(&mut self, window: &AppWindow, width: f32) {
+        self.config.side_panel_width = if width > 0.0 {
+            width.round().clamp(200.0, 720.0)
+        } else {
+            0.0
+        };
+        self.save_config(window);
+        self.apply_config(window);
     }
 
     /// A change from the settings screen.

@@ -122,6 +122,9 @@ export component AppWindow inherits Window {
 
     // Chrome.
     in-out property <bool> sidebar-visible: true;
+    // The side panel width the user dragged to; 0 is automatic.
+    in property <length> side-panel-width;
+    callback side-panel-resized(length);
     // Show the header button that opens and closes the sidebar.
     in property <bool> sidebar-button: true;
     in property <bool> fullscreen;
@@ -651,6 +654,10 @@ export component AppWindow inherits Window {
                     content-height: root.thumbs-content-height;
                     viewport-y <=> root.thumbs-viewport-y;
                     mode: root.side-panel;
+                    panel-width: root.side-panel-width;
+                    resized(width) => {
+                        root.side-panel-resized(width);
+                    }
                     items: root.side-items;
                     filters: root.note-filters;
                     all-label: root.notes-all-label;
