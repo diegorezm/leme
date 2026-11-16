@@ -34,6 +34,7 @@ macro_rules! actions {
 actions! {
     Open => "open", "Add to session…";
     ChooseFile => "choose-file", "Choose file…";
+    UpdatePage => "update-page", "Update page from the web";
     CommandPalette => "command-palette", "Command palette";
     Search => "search", "Search in document";
     SearchSession => "search-session", "Search all tabs in session…";

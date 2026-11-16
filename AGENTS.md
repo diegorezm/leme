@@ -148,6 +148,9 @@ src/
   store.rs        // reading history and last session (state.txt)
   nav.rs          // pure page navigation and page-number parsing
   update.rs       // update check and install from GitHub releases
+  web.rs          // web pages saved as documents: fetch through curl, where they're kept
+  html.rs         // pure: readable text (headings, paragraphs, styles) from an HTML page
+  typeset.rs      // typesets a page's text into a PDF with PDFium's built-in fonts
 ui/
   app.slint       // main window: header, tabs, reader, overlays
   reader.slint    // page strip, thumbnails sidebar, start screen, tab bar
@@ -164,7 +167,7 @@ The PDF worker processes one small unit at a time (text selection > page render 
 
 Rules:
 - `.slint` files expose properties and callbacks; they contain no business logic beyond trivial layout/visibility bindings.
-- `pdf`, `recover`, `layout`, `cache`, `nav`, `keymap`, `palette`, `search`, `annotations`, `export`, `study`, `config`, `store` must not depend on Slint UI types, so they are unit-testable (`keymap` only uses Slint's key constants). Only `main.rs`, `app.rs`, and `viewer.rs` touch Slint types.
+- `pdf`, `recover`, `typeset`, `html`, `web`, `layout`, `cache`, `nav`, `keymap`, `palette`, `search`, `annotations`, `export`, `study`, `config`, `store` must not depend on Slint UI types, so they are unit-testable (`keymap` only uses Slint's key constants). Only `main.rs`, `app.rs`, and `viewer.rs` touch Slint types.
 - State flows one way: UI callback → `Action` → controller updates state → controller pushes properties to UI.
 - Paths: everything user-owned lives in `%APPDATA%\leme` (`config.toml`, `themes\`, `annotations\`, `state.txt`, `study.txt`); caches go in `%LOCALAPPDATA%\leme`. On Linux: `$XDG_CONFIG_HOME/leme` (`~/.config/leme`) and `$XDG_CACHE_HOME/leme` (`~/.cache/leme`); see `config::data_dir`/`cache_dir`. Platform code is behind `#[cfg(windows)]`. Never write next to the executable, in the document folder, or into the PDF.
 - User files must never block startup: parse leniently, fall back to defaults, and report problems in Settings.
@@ -192,6 +195,7 @@ Rules:
 **Security & privacy**
 - No network access, ever, without an explicit future decision recorded here.
 - Recorded exception (update check): `update.rs` asks github.com for the latest release on startup (`check_updates = true` by default, off in `config.toml`) and from the palette. It sends nothing about the user, downloads only after the user agrees, verifies the installer against the release's `SHA256SUMS.txt`, and uses Windows' `curl.exe` so there is no HTTP stack in the binary. Portable copies only open the release page.
+- Recorded exception (web pages): `web.rs` downloads a page only when the user pastes its address in the Add to session panel, or asks to update a saved page. HTTPS only, through the same system `curl` as the update check, with a generic browser user agent (some sites drop curl's own); nothing about the user is sent. The page is read by `html.rs` (no JavaScript: pages that need it come out empty and are reported) and typeset by `typeset.rs` into `<data>/pages/<hash of address>/<title>.pdf`, next to `source.txt` with its address. Updates rewrite the same file, so annotations stay attached.
 - Treat PDFs as untrusted input: never panic, bound memory on huge pages, validate page indices.
 - Never log document contents or full paths at default log levels.
 - Never commit secrets, local configs, or user documents.

@@ -1,6 +1,7 @@
 //! Application state above the open document: tabs and the session,
 //! keybindings, the command palette, settings, themes, and overlays.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
@@ -12,6 +13,7 @@ use crate::config::{
     ThemeDef, ThumbnailSize,
 };
 use crate::export::Format;
+use crate::html::Article;
 use crate::i18n::{self, tr, trf, untr};
 use crate::keymap::{Action, Chord, KeyResult, Keymap};
 use crate::palette::{self, Entry, Target};
@@ -22,6 +24,7 @@ use crate::titlebar;
 use crate::update;
 use crate::viewer::PageBuffer;
 use crate::viewer::{file_name, to_color, ui_int, PopupOutcome, SidePanel, Viewer};
+use crate::web;
 use crate::{
     AppWindow, HighlightRow, KeyRow, PaletteItem, RecentItem, SearchHit, SettingsWindow,
     SubjectItem, TabItem, Theme, ThemeCard,
@@ -644,6 +647,13 @@ impl App {
         match action {
             Action::Open => self.open_add_panel(window),
             Action::ChooseFile => self.open_dialog(window),
+            Action::UpdatePage => match self.active_source() {
+                Some(url) => {
+                    self.flash(window, &tr("Downloading page…"));
+                    crate::fetch_page(window, url);
+                }
+                None => self.flash(window, &tr("This document didn't come from a web page")),
+            },
             Action::CommandPalette => self.open_palette(window),
             Action::Search if self.viewer.page_count() > 0 => self.open_search(window, false),
             Action::SearchSession => self.open_search(window, true),
@@ -1280,6 +1290,10 @@ impl App {
             } => self.file_hit(window, id, path, page, snippet, count),
             Event::FilesDone { .. } => {}
             Event::Article { number, page } => self.article_found(window, number, page),
+            Event::Typeset { path, result } => match result {
+                Ok(()) => self.open_path(window, path),
+                Err(err) => self.flash(window, &trf("Couldn't save the page: {}", &[&err])),
+            },
             Event::Error(message) => {
                 if let Some(path) = self.viewer.open_failed(window, message) {
                     if let Some(index) = self.tabs.iter().position(|t| *t == path) {
@@ -1744,6 +1758,17 @@ impl App {
         let ranked = palette::filter(&self.palette_entries, query, usize::MAX);
         let mut shown = palette::grouped(ranked, PALETTE_GROUP_LIMIT, PALETTE_LIMIT);
         if self.adding {
+            if let Some(url) = web::address(query) {
+                shown.insert(
+                    0,
+                    Entry {
+                        title: tr("Save page as document"),
+                        detail: url.clone(),
+                        target: Target::Page(url),
+                        keys: String::new(),
+                    },
+                );
+            }
             if let Some(path) = palette::typed_path(query).filter(|p| p.is_file()) {
                 shown.insert(
                     0,
@@ -1797,6 +1822,10 @@ impl App {
             Target::Theme(name) => self.setting(window, "theme", &name),
             Target::Session(i) => self.switch_session(window, i),
             Target::ChooseFile => self.open_dialog(window),
+            Target::Page(url) => {
+                self.flash(window, &tr("Downloading page…"));
+                crate::fetch_page(window, url);
+            }
         }
     }
 
@@ -1836,6 +1865,39 @@ impl App {
         self.palette_items.set_vec(items);
         window.set_palette_selected(ui_int(self.palette_selected));
         debug_assert!(self.palette_items.row_count() == self.palette_shown.len());
+    }
+
+    // ----- Web pages ----------------------------------------------------------
+
+    /// The address the front tab was saved from, if it's a web page.
+    fn active_source(&self) -> Option<String> {
+        web::source_of(self.tabs.get(self.active?)?)
+    }
+
+    /// A page downloaded and read: typeset it into the pages folder.
+    pub fn page_fetched(
+        &mut self,
+        window: &AppWindow,
+        url: String,
+        result: Result<Article, String>,
+    ) {
+        let article = match result {
+            Ok(article) => article,
+            Err(err) => {
+                self.flash(window, &trf("Couldn't download the page: {}", &[&err]));
+                return;
+            }
+        };
+        let Some(pages) = config::data_dir().map(|d| d.join("pages")) else {
+            self.flash(window, &tr("No data folder to save the page in"));
+            return;
+        };
+        let (dir, pdf) = web::target(&pages, &url, &article.title);
+        if let Err(err) = fs::create_dir_all(&dir).and_then(|()| web::save_source(&dir, &url)) {
+            self.flash(window, &trf("Couldn't save the page: {}", &[&err]));
+            return;
+        }
+        self.viewer.typeset(article, url, pdf);
     }
 
     // ----- Updates ------------------------------------------------------------

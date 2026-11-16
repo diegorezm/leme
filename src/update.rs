@@ -130,7 +130,7 @@ const NULL_DEVICE: &str = "NUL";
 #[cfg(not(windows))]
 const NULL_DEVICE: &str = "/dev/null";
 
-fn curl() -> Command {
+pub(crate) fn curl() -> Command {
     #[cfg(windows)]
     let mut command = {
         let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());

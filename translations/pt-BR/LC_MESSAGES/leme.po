@@ -757,3 +757,27 @@ msgstr "Digite um caminho ou busque nos recentes…"
 
 msgid "add to session"
 msgstr "adicionar à sessão"
+
+msgid "Update page from the web"
+msgstr "Atualizar página da web"
+
+msgid "Save page as document"
+msgstr "Salvar página como documento"
+
+msgid "Downloading page…"
+msgstr "Baixando página…"
+
+msgid "This document didn't come from a web page"
+msgstr "Este documento não veio de uma página da web"
+
+msgid "Couldn't save the page: {}"
+msgstr "Não foi possível salvar a página: {}"
+
+msgid "Couldn't download the page: {}"
+msgstr "Não foi possível baixar a página: {}"
+
+msgid "No data folder to save the page in"
+msgstr "Sem pasta de dados para salvar a página"
+
+msgid "the page has no readable text (it may need JavaScript)"
+msgstr "a página não tem texto legível (pode precisar de JavaScript)"

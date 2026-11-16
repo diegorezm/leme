@@ -12,7 +12,7 @@ The defaults. All of them can be changed (see [Customizing](#customizing)), and 
 
 | Shortcut                                 | Action                                                                  |
 | ---------------------------------------- | ----------------------------------------------------------------------- |
-| `Ctrl+O`                                 | Open PDFs (in new tabs)                                                 |
+| `Ctrl+O`                                 | Add to session: a file, a recent document, or a web page's address      |
 | `Ctrl+K` / `Ctrl+Shift+P`                | Command palette                                                         |
 | `Ctrl+F`                                 | Search (`Enter` / `Shift+Enter` for next / previous match)              |
 | `Ctrl+Shift+F`                           | Search the text of every tab in the session                             |
@@ -48,6 +48,10 @@ Leme has a few tools for studying, for exams for example, that stay out of the w
 - **Export.** `Ctrl+E` exports the notes in the colors the notes panel shows: as a Markdown summary grouped by section and color (or the Obsidian format, grouped by page), as a file Anki imports as cards (_File › Import_; the note is the front, the quote the back, color and document are tags), or as CSV. Reviewing the cards is left to Anki or whatever app you use.
 - **Study time.** The header shows how long you've read today. Time counts while you use Leme (pauses longer than five minutes don't count) and is kept per day and document in `study.txt`. Click it or press `Ctrl+T` to pause. To remove it, turn off Settings → Reading → Study timer (`study_timer = false`); then nothing is counted.
 - **Session search and law articles.** `Ctrl+Shift+F` (or _All tabs_ in the search panel) searches every tab in the session at once, listing the pages found under each document, ignoring case and accents (`licitacao` finds _licitação_). In Go to page, `art. 37` jumps to where that article starts.
+
+## Web pages
+
+Paste a page's address in Add to session (`Ctrl+O`) and choose *Save page as document*: Leme downloads it once, keeps only the text (headings, paragraphs, bold, italic, struck-through), and saves it as a PDF you can highlight, annotate, and search like any other, offline. *Update page from the web* (palette) downloads it again into the same file. Pages that build their text with JavaScript or need a login can't be read this way; Leme says so instead of saving an empty page. Saved pages live in the data folder under `pages\`.
 
 ## Customizing
 

@@ -6,6 +6,7 @@ mod app;
 mod cache;
 mod config;
 mod export;
+mod html;
 mod i18n;
 mod instance;
 mod keymap;
@@ -18,8 +19,10 @@ mod search;
 mod store;
 mod study;
 mod titlebar;
+mod typeset;
 mod update;
 mod viewer;
+mod web;
 
 use std::cell::RefCell;
 
@@ -68,6 +71,34 @@ pub fn check_for_update(window: &AppWindow, manual: bool) {
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(win) = weak.upgrade() {
                 with_app(|app| app.update_checked(&win, result, manual));
+            }
+        });
+    });
+}
+
+/// Words below which a fetched page counts as empty: a shell that builds
+/// its text with JavaScript, or an error page.
+const MIN_PAGE_WORDS: usize = 20;
+
+/// Downloads a web page and reads its text off the UI thread.
+pub fn fetch_page(window: &AppWindow, url: String) {
+    let weak = window.as_weak();
+    std::thread::spawn(move || {
+        let result = web::fetch(&url)
+            .map_err(|err| err.to_string())
+            .and_then(|bytes| {
+                let article = html::extract(&html::decode(&bytes));
+                if article.word_count() < MIN_PAGE_WORDS {
+                    Err(i18n::tr(
+                        "the page has no readable text (it may need JavaScript)",
+                    ))
+                } else {
+                    Ok(article)
+                }
+            });
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(win) = weak.upgrade() {
+                with_app(|app| app.page_fetched(&win, url, result));
             }
         });
     });

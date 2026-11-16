@@ -296,6 +296,16 @@ impl Viewer {
         });
     }
 
+    /// Typesets a web page as a PDF on the worker; a `Typeset` event says
+    /// when it's done.
+    pub fn typeset(&self, article: crate::html::Article, source: String, out: PathBuf) {
+        self.worker.send(Request::Typeset {
+            article: Box::new(article),
+            source,
+            out,
+        });
+    }
+
     pub fn find_article(&self, number: u32) {
         self.worker.send(Request::FindArticle { number });
     }

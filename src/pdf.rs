@@ -65,6 +65,12 @@ pub enum Request {
     },
     /// Finds the page where article `number` of a law starts ("Art. 37").
     FindArticle { number: u32 },
+    /// Typesets a web page's text as a PDF at `out`, replacing it.
+    Typeset {
+        article: Box<crate::html::Article>,
+        source: String,
+        out: PathBuf,
+    },
 }
 
 /// One outline (table of contents) entry, flattened in reading order.
@@ -139,6 +145,11 @@ pub enum Event<B = Bitmap> {
         number: u32,
         page: Option<usize>,
     },
+    /// A web page was typeset to `path`, or why not.
+    Typeset {
+        path: PathBuf,
+        result: Result<(), String>,
+    },
     Error(String),
 }
 
@@ -191,6 +202,7 @@ impl<B> Event<B> {
             },
             Event::FilesDone { id } => Event::FilesDone { id },
             Event::Article { number, page } => Event::Article { number, page },
+            Event::Typeset { path, result } => Event::Typeset { path, result },
             Event::Error(message) => Event::Error(message),
         }
     }
@@ -568,6 +580,19 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
                 });
                 continue;
             }
+            Some(Request::Typeset {
+                article,
+                source,
+                out,
+            }) => {
+                // An update replaces the file: forget the open copy.
+                documents.retain(|d| d.path != out);
+                let result = crate::typeset::write(&pdfium, &article, &source, &out)
+                    .map(|_| ())
+                    .map_err(|err| err.to_string());
+                on_event(Event::Typeset { path: out, result });
+                continue;
+            }
             Some(Request::FindArticle { number }) => {
                 article = Some(ArticleJob { number, next: 0 });
                 continue;
@@ -812,7 +837,7 @@ fn search_files_step<'a>(
 }
 
 /// Prefers the pdfium.dll next to the executable, then the system library.
-fn bind() -> Result<Pdfium, PdfiumError> {
+pub(crate) fn bind() -> Result<Pdfium, PdfiumError> {
     let local = std::env::current_exe()
         .ok()
         .and_then(|exe| {

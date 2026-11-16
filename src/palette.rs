@@ -14,6 +14,8 @@ pub enum Target {
     Session(usize),
     /// The native file dialog.
     ChooseFile,
+    /// A web page to save as a document.
+    Page(String),
 }
 
 /// What the palette lists an entry under.
@@ -43,7 +45,7 @@ impl Group {
 impl Target {
     pub fn group(&self) -> Group {
         match self {
-            Target::GoToPage(_) | Target::ChooseFile => Group::Page,
+            Target::GoToPage(_) | Target::ChooseFile | Target::Page(_) => Group::Page,
             Target::Theme(_) => Group::Themes,
             Target::Command(_) => Group::Commands,
             Target::Tab(_) | Target::Recent(_) => Group::Tabs,
