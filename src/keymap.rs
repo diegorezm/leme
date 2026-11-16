@@ -36,6 +36,9 @@ actions! {
     ChooseFile => "choose-file", "Choose file…";
     UpdatePage => "update-page", "Update page from the web";
     ToggleRevoked => "toggle-revoked", "Show or hide revoked text";
+    Libraries => "libraries", "Libraries…";
+    NewLibrary => "new-library", "New library…";
+    AddToLibrary => "add-to-library", "Add document to library…";
     CommandPalette => "command-palette", "Command palette";
     Search => "search", "Search in document";
     SearchSession => "search-session", "Search all tabs in session…";
@@ -108,6 +111,7 @@ impl Action {
 
 const DEFAULT_KEYS: &[(Action, &str)] = &[
     (Action::Open, "ctrl+o"),
+    (Action::Libraries, "ctrl+shift+l"),
     (Action::CommandPalette, "ctrl+k"),
     (Action::CommandPalette, "ctrl+shift+p"),
     (Action::Search, "ctrl+f"),

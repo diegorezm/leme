@@ -16,7 +16,8 @@ use crate::export::Format;
 use crate::html::Article;
 use crate::i18n::{self, tr, trf, untr};
 use crate::keymap::{Action, Chord, KeyResult, Keymap};
-use crate::palette::{self, Entry, Target};
+use crate::library::{self, Libraries};
+use crate::palette::{self, Entry, LibraryAction, Target};
 use crate::pdf::{Event, PageTint, Worker};
 use crate::store::{unique_name, Session, Store, DEFAULT_SESSION};
 use crate::study::{self, Clock, StudyLog};
@@ -26,8 +27,8 @@ use crate::viewer::PageBuffer;
 use crate::viewer::{file_name, to_color, ui_int, PopupOutcome, SidePanel, Viewer};
 use crate::web;
 use crate::{
-    AppWindow, HighlightRow, KeyRow, PaletteItem, RecentItem, SearchHit, SettingsWindow,
-    SubjectItem, TabItem, Theme, ThemeCard,
+    AppWindow, HighlightRow, KeyRow, LibraryItem, PaletteItem, RecentItem, SearchHit,
+    SettingsWindow, SubjectItem, TabItem, Theme, ThemeCard,
 };
 const PALETTE_LIMIT: usize = 12;
 /// Entries of one kind (themes, commands, tabs) the palette lists at once.
@@ -75,6 +76,8 @@ const EXPORT_PREVIEW_LINES: usize = 14;
 enum Prompt {
     NewSession,
     RenameSession,
+    NewLibrary,
+    RenameLibrary(usize),
     /// The password of an encrypted document.
     Password(PathBuf),
 }
@@ -133,6 +136,8 @@ pub struct App {
     palette_shown: Vec<Entry>,
     palette_selected: usize,
     palette_items: Rc<VecModel<PaletteItem>>,
+
+    libraries: Libraries,
 }
 
 impl App {
@@ -187,7 +192,14 @@ impl App {
             palette_shown: Vec::new(),
             palette_selected: 0,
             palette_items,
+            libraries: Libraries::default(),
         };
+        if let Some(path) = libraries_path() {
+            let (libraries, problem) = Libraries::load(&path);
+            app.libraries = libraries;
+            app.problems.extend(problem);
+        }
+        app.update_libraries(window);
         app.reload_config(window);
         window.set_sidebar_visible(app.config.sidebar);
 
@@ -666,6 +678,9 @@ impl App {
                 }
                 None => self.flash(window, &tr("This document didn't come from a web page")),
             },
+            Action::Libraries => self.open_libraries(window, false),
+            Action::AddToLibrary if self.active.is_some() => self.open_libraries(window, true),
+            Action::NewLibrary => self.ask_name(window, Prompt::NewLibrary, ""),
             Action::ToggleRevoked => {
                 let saved = self.active().and_then(|p| web::saved_html(&p));
                 match (self.active_source(), saved) {
@@ -1042,6 +1057,8 @@ impl App {
             tr(match prompt {
                 Prompt::NewSession => "New session",
                 Prompt::RenameSession => "Rename session",
+                Prompt::NewLibrary => "New library",
+                Prompt::RenameLibrary(_) => "Rename library",
                 Prompt::Password(_) => "Password",
             })
             .into(),
@@ -1060,6 +1077,21 @@ impl App {
         match prompt {
             Some(Prompt::NewSession) => self.new_session(window, text),
             Some(Prompt::RenameSession) => self.rename_session(window, text),
+            Some(Prompt::NewLibrary) => {
+                if let Some(i) = self.libraries.create(text, library::ICONS[0]) {
+                    if let Some(doc) = self.active() {
+                        self.libraries.add(i, &doc);
+                    }
+                    self.libraries_changed(window);
+                }
+            }
+            Some(Prompt::RenameLibrary(i)) => {
+                if self.libraries.rename(i, text) {
+                    self.libraries_changed(window);
+                } else {
+                    self.flash(window, &tr("A library with that name already exists"));
+                }
+            }
             Some(Prompt::Password(path)) if self.viewer.is_pending(&path) => {
                 self.viewer.open_with_password(path, text.to_owned());
             }
@@ -1320,6 +1352,7 @@ impl App {
             Event::Typeset { path, result } => match result {
                 // Highlights first find their text again, then it opens.
                 Ok(()) => {
+                    self.file_law(window, &path);
                     if !self.viewer.relocate_annotations(&path) {
                         self.reopen(window, path);
                     }
@@ -1728,6 +1761,7 @@ impl App {
             keys: self.key_hint(Action::ChooseFile),
         }];
         entries.extend(self.recent_entries());
+        entries.extend(self.library_entries());
         self.show_palette(window, entries, true);
     }
 
@@ -1737,6 +1771,7 @@ impl App {
             .recent
             .iter()
             .filter(|r| !self.tabs.iter().any(|t| same_file(t, &r.path)))
+            .filter(|r| self.libraries.holding(&r.path).is_empty())
             .map(|r| Entry {
                 target: Target::Recent(r.path.clone()),
                 title: file_name(&r.path),
@@ -1800,6 +1835,7 @@ impl App {
             });
         }
         entries.extend(self.recent_entries());
+        entries.extend(self.library_entries());
         self.show_palette(window, entries, false);
     }
 
@@ -1871,6 +1907,29 @@ impl App {
             Target::Theme(name) => self.setting(window, "theme", &name),
             Target::Session(i) => self.switch_session(window, i),
             Target::ChooseFile => self.open_dialog(window),
+            Target::Library(i) => self.open_library(window, i),
+            Target::LibraryDoc(path) => self.open_path(window, path),
+            Target::AddTo(i) => {
+                if let Some(doc) = self.active() {
+                    self.libraries.add(i, &doc);
+                    self.libraries_changed(window);
+                    let name = self
+                        .libraries
+                        .items
+                        .get(i)
+                        .map(|l| l.name.clone())
+                        .unwrap_or_default();
+                    self.flash(window, &trf("Added to {}", &[&name]));
+                }
+            }
+            Target::LibraryIcon(i, icon) => {
+                if let Some(library) = self.libraries.items.get_mut(i) {
+                    library.icon = icon;
+                    library.image = None;
+                    self.libraries_changed(window);
+                }
+            }
+            Target::LibraryAction(i, action) => self.library_action(window, i, action),
             Target::Page(url) => {
                 self.flash(window, &tr("Downloading page…"));
                 let source = web::Source {
@@ -1918,6 +1977,205 @@ impl App {
         self.palette_items.set_vec(items);
         window.set_palette_selected(ui_int(self.palette_selected));
         debug_assert!(self.palette_items.row_count() == self.palette_shown.len());
+    }
+
+    // ----- Libraries ----------------------------------------------------------
+
+    /// Documents in libraries, for the palettes; tabs already open skip.
+    fn library_entries(&self) -> Vec<Entry> {
+        let mut seen: Vec<&PathBuf> = Vec::new();
+        let mut entries = Vec::new();
+        for (library, doc) in self.libraries.documents() {
+            if seen.contains(&doc) || self.tabs.iter().any(|t| same_file(t, doc)) {
+                continue;
+            }
+            seen.push(doc);
+            let names: Vec<&str> = self
+                .libraries
+                .holding(doc)
+                .iter()
+                .filter_map(|&i| self.libraries.items.get(i).map(|l| l.name.as_str()))
+                .collect();
+            entries.push(Entry {
+                target: Target::LibraryDoc(doc.clone()),
+                title: file_name(doc),
+                detail: if names.is_empty() {
+                    library.name.clone()
+                } else {
+                    names.join(", ")
+                },
+                keys: String::new(),
+            });
+        }
+        entries
+    }
+
+    /// The libraries, to open one, or (`adding`) to add the open
+    /// document to one.
+    fn open_libraries(&mut self, window: &AppWindow, adding: bool) {
+        let holding = self
+            .active()
+            .map(|d| self.libraries.holding(&d))
+            .unwrap_or_default();
+        let mut entries: Vec<Entry> = self
+            .libraries
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !adding || !holding.contains(i))
+            .map(|(i, l)| Entry {
+                target: if adding {
+                    Target::AddTo(i)
+                } else {
+                    Target::Library(i)
+                },
+                title: l.name.clone(),
+                detail: document_count(l.documents.len()),
+                keys: String::new(),
+            })
+            .collect();
+        entries.push(Entry {
+            target: Target::Command(Action::NewLibrary),
+            title: tr("New library…"),
+            detail: String::new(),
+            keys: self.key_hint(Action::NewLibrary),
+        });
+        self.show_palette(window, entries, false);
+    }
+
+    /// One library: its documents, and what can be done with it.
+    pub fn open_library(&mut self, window: &AppWindow, index: usize) {
+        let Some(library) = self.libraries.items.get(index) else {
+            return;
+        };
+        let mut entries: Vec<Entry> = library
+            .documents
+            .iter()
+            .map(|doc| Entry {
+                target: Target::LibraryDoc(doc.clone()),
+                title: file_name(doc),
+                detail: library.name.clone(),
+                keys: String::new(),
+            })
+            .collect();
+        let action = |action, title: &str| Entry {
+            target: Target::LibraryAction(index, action),
+            title: trf(title, &[&library.name]),
+            detail: String::new(),
+            keys: String::new(),
+        };
+        if let Some(doc) = self.active() {
+            if library.documents.contains(&doc) {
+                entries.push(action(
+                    LibraryAction::RemoveCurrent,
+                    "Remove this document from {}",
+                ));
+            } else {
+                entries.push(action(LibraryAction::AddCurrent, "Add this document to {}"));
+            }
+        }
+        entries.push(action(LibraryAction::Icon, "Change the icon of {}…"));
+        entries.push(action(LibraryAction::Picture, "Use a picture for {}…"));
+        entries.push(action(LibraryAction::Rename, "Rename {}…"));
+        entries.push(action(LibraryAction::Delete, "Delete library {}"));
+        self.show_palette(window, entries, false);
+    }
+
+    fn library_action(&mut self, window: &AppWindow, i: usize, action: LibraryAction) {
+        let Some(library) = self.libraries.items.get(i) else {
+            return;
+        };
+        let name = library.name.clone();
+        match action {
+            LibraryAction::AddCurrent | LibraryAction::RemoveCurrent => {
+                let Some(doc) = self.active() else { return };
+                if action == LibraryAction::AddCurrent {
+                    self.libraries.add(i, &doc);
+                } else {
+                    self.libraries.remove(i, &doc);
+                }
+                self.libraries_changed(window);
+            }
+            LibraryAction::Icon => {
+                let entries = library::ICONS
+                    .iter()
+                    .map(|icon| Entry {
+                        target: Target::LibraryIcon(i, (*icon).to_owned()),
+                        title: tr(icon_title(icon)),
+                        detail: if library.icon == *icon && library.image.is_none() {
+                            tr("in use")
+                        } else {
+                            String::new()
+                        },
+                        keys: String::new(),
+                    })
+                    .collect();
+                self.show_palette(window, entries, false);
+            }
+            LibraryAction::Picture => {
+                let picked = rfd::FileDialog::new()
+                    .set_title(trf("Picture for {}", &[&name]))
+                    .add_filter("Image", &["png", "jpg", "jpeg", "svg", "webp"])
+                    .pick_file();
+                if let (Some(path), Some(library)) = (picked, self.libraries.items.get_mut(i)) {
+                    library.image = Some(path);
+                    self.libraries_changed(window);
+                }
+            }
+            LibraryAction::Rename => self.ask_name(window, Prompt::RenameLibrary(i), &name),
+            LibraryAction::Delete => {
+                // Only the list goes; the documents stay where they are.
+                self.libraries.items.remove(i);
+                self.libraries_changed(window);
+                self.flash(
+                    window,
+                    &trf("Deleted library {} (its documents are kept)", &[&name]),
+                );
+            }
+        }
+    }
+
+    fn libraries_changed(&mut self, window: &AppWindow) {
+        if let Some(path) = libraries_path() {
+            if let Err(err) = self.libraries.save(&path) {
+                self.flash(window, &trf("Couldn't save libraries: {}", &[&err]));
+            }
+        }
+        self.update_libraries(window);
+    }
+
+    fn update_libraries(&self, window: &AppWindow) {
+        let items: Vec<LibraryItem> = self
+            .libraries
+            .items
+            .iter()
+            .map(|l| {
+                let image = l
+                    .image
+                    .as_deref()
+                    .and_then(|p| slint::Image::load_from_path(p).ok());
+                LibraryItem {
+                    name: l.name.as_str().into(),
+                    icon: l.icon.as_str().into(),
+                    has_image: image.is_some(),
+                    image: image.unwrap_or_default(),
+                    count: l.documents.len().to_string().into(),
+                }
+            })
+            .collect();
+        window.set_libraries(Rc::new(VecModel::from(items)).into());
+    }
+
+    /// Saved laws go into the Laws library, made on first use.
+    fn file_law(&mut self, window: &AppWindow, pdf: &Path) {
+        let law = web::source_of(pdf).is_some_and(|s| crate::html::is_planalto(&s.url));
+        if !law || !self.libraries.holding(pdf).is_empty() {
+            return;
+        }
+        if let Some(i) = self.libraries.create(library::LAWS, "scale") {
+            self.libraries.add(i, pdf);
+            self.libraries_changed(window);
+        }
     }
 
     // ----- Web pages ----------------------------------------------------------
@@ -2163,6 +2421,34 @@ fn ensure_theme_template(dir: &Path) {
         let template =
             include_str!("../themes/noite.toml").replace("name = \"Noite\"", "name = \"My Theme\"");
         let _ = std::fs::write(dir.join("my-theme.toml"), template);
+    }
+}
+
+fn libraries_path() -> Option<PathBuf> {
+    config::data_dir().map(|d| d.join("libraries.toml"))
+}
+
+fn document_count(n: usize) -> String {
+    if n == 1 {
+        tr("1 document")
+    } else {
+        trf("{} documents", &[&n])
+    }
+}
+
+/// English names of the library icons, for the palette.
+fn icon_title(icon: &str) -> &'static str {
+    match icon {
+        "scale" => "Scales",
+        "bookmark" => "Bookmark",
+        "star" => "Star",
+        "folder" => "Folder",
+        "code" => "Code",
+        "flask" => "Flask",
+        "globe" => "Globe",
+        "pencil" => "Pencil",
+        "heart" => "Heart",
+        _ => "Book",
     }
 }
 

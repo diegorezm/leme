@@ -16,6 +16,24 @@ pub enum Target {
     ChooseFile,
     /// A web page to save as a document.
     Page(String),
+    /// A library: lists its documents and what can be done with it.
+    Library(usize),
+    /// A document kept in a library.
+    LibraryDoc(PathBuf),
+    LibraryAction(usize, LibraryAction),
+    LibraryIcon(usize, String),
+    /// Adds the open document to a library.
+    AddTo(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryAction {
+    AddCurrent,
+    RemoveCurrent,
+    Icon,
+    Picture,
+    Rename,
+    Delete,
 }
 
 /// What the palette lists an entry under.
@@ -27,6 +45,7 @@ pub enum Group {
     Commands,
     Tabs,
     Sessions,
+    Libraries,
 }
 
 impl Group {
@@ -38,6 +57,7 @@ impl Group {
             Group::Commands => "Commands",
             Group::Tabs => "Tabs and recent",
             Group::Sessions => "Sessions",
+            Group::Libraries => "Libraries",
         }
     }
 }
@@ -50,6 +70,8 @@ impl Target {
             Target::Command(_) => Group::Commands,
             Target::Tab(_) | Target::Recent(_) => Group::Tabs,
             Target::Session(_) => Group::Sessions,
+            Target::Library(_) | Target::LibraryDoc(_) | Target::AddTo(_) => Group::Libraries,
+            Target::LibraryAction(..) | Target::LibraryIcon(..) => Group::Commands,
         }
     }
 }

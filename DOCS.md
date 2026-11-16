@@ -55,6 +55,10 @@ Paste a page's address in Add to session (`Ctrl+O`) and choose *Save page as doc
 
 Links in the page stay clickable: those within it jump there, others open in the browser, and links to other laws on planalto.gov.br open in Leme (the saved copy, or downloaded on the spot). Laws from planalto.gov.br get extra care: the letterhead and link lines above the law go, the law's name becomes the title, and its Títulos, Capítulos, and Seções become the outline. Revoked (struck-through) text is hidden; *Show or hide revoked text* (palette) switches the open law, without downloading it again, and `show_revoked = true` in `config.toml` shows it struck through by default.
 
+## Libraries
+
+Libraries are named collections of documents, shared by every session: saved pages and PDFs from disk, each library with an icon or a picture of yours. They're listed on the home screen; `Ctrl+Shift+L` (*Libraries…*) opens one to search its documents, add or remove the open document, change its icon or picture, rename, or delete it (its documents stay). *Add document to library…* puts the open document in one. Laws saved from planalto.gov.br go into *Leis* on their own. The palette and Add to session find documents in every library.
+
 ## Customizing
 
 Everything lives in `%APPDATA%\leme\` (Settings → General → Data folder):
@@ -64,6 +68,7 @@ Everything lives in `%APPDATA%\leme\` (Settings → General → Data folder):
 | `config.toml`        | Preferences and keybindings. Settings writes here too.                      |
 | `themes\*.toml`      | Your themes. Start from any file in this repo's [`themes/`](themes) folder. |
 | `annotations\*.toml` | Highlights and notes, one file per document.                                |
+| `libraries.toml`     | Libraries: names, icons, pictures, and their documents.                     |
 | `state.txt`          | Recent files, reading positions, and sessions with their tabs.              |
 | `study.txt`          | Study time per day and document.                                            |
 

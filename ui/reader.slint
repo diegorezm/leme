@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { PageView, ThumbView, RecentItem, TabItem, SideItem, NoteFilter, SubjectItem } from "structs.slint";
+import { PageView, ThumbView, RecentItem, TabItem, SideItem, NoteFilter, SubjectItem, LibraryItem } from "structs.slint";
 import { Icon, QuietButton, Kbd, Label, Scrollbar } from "widgets.slint";
 
 // A filter of the notes list: one highlight color, or all of them.
@@ -645,6 +645,9 @@ export component StartScreen inherits Rectangle {
     in property <string> palette-keys;
     callback open-subject(int);
     callback add();
+    in property <[LibraryItem]> libraries;
+    callback open-library(int);
+    callback new-library();
     callback open-recent(int);
     callback open-session(int);
     callback new-session();
@@ -945,6 +948,100 @@ export component StartScreen inherits Rectangle {
                                 Text {
                                     text: @tr("New session…");
                                     color: new-touch.has-hover ? Theme.text : Theme.text-muted;
+                                    font-size: Theme.font-size;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                        }
+
+                        // Libraries: shared by every session.
+                        Rectangle {
+                            height: 44px;
+
+                            Label {
+                                x: 12px;
+                                y: parent.height - 24px;
+                                height: 18px;
+                                label: @tr("Libraries");
+                            }
+                        }
+
+                        for library[i] in root.libraries: Rectangle {
+                            height: 40px;
+                            border-radius: Theme.radius;
+                            background: library-touch.has-hover ? Theme.hover : transparent;
+
+                            library-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.open-library(i);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 9px;
+                                padding-right: 12px;
+                                spacing: 9px;
+
+                                if library.has-image: Image {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 18px;
+                                    height: 18px;
+                                    source: library.image;
+                                    image-fit: cover;
+                                }
+                                if !library.has-image: Icon {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 15px;
+                                    height: 15px;
+                                    name: library.icon;
+                                    color: Theme.accent;
+                                }
+                                Text {
+                                    text: library.name;
+                                    color: Theme.text;
+                                    font-size: Theme.font-size;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: library.count;
+                                    color: Theme.text-muted;
+                                    font-size: Theme.font-size-small;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 40px;
+                            border-radius: Theme.radius;
+                            background: new-library-touch.has-hover ? Theme.hover : transparent;
+
+                            new-library-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.new-library();
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 9px;
+                                padding-right: 12px;
+                                spacing: 7px;
+
+                                Icon {
+                                    y: (parent.height - self.height) / 2;
+                                    width: 12px;
+                                    height: 12px;
+                                    name: "plus";
+                                    color: new-library-touch.has-hover ? Theme.text : Theme.text-muted;
+                                }
+                                Text {
+                                    text: @tr("New library…");
+                                    color: new-library-touch.has-hover ? Theme.text : Theme.text-muted;
                                     font-size: Theme.font-size;
                                     vertical-alignment: center;
                                     horizontal-stretch: 1;

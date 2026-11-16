@@ -11,6 +11,7 @@ mod i18n;
 mod instance;
 mod keymap;
 mod layout;
+mod library;
 mod nav;
 mod palette;
 mod pdf;
@@ -251,6 +252,10 @@ fn main() -> Result<(), slint::PlatformError> {
         .switch_session(&win, index(i)));
     on!(window.on_prompt_accepted, |app, win, text| app
         .prompt_accepted(&win, &text));
+    on!(window.on_open_library, |app, win, i| app.open_library(
+        &win,
+        usize::try_from(i).unwrap_or(usize::MAX)
+    ));
     on!(window.on_side_panel_resized, |app, win, width| app
         .side_panel_resized(&win, width));
     on!(window.on_header_action, |app, win, action| {
@@ -263,6 +268,7 @@ fn main() -> Result<(), slint::PlatformError> {
             "goto" => Action::GoToPage,
             "palette" => Action::CommandPalette,
             "export" => Action::ExportNotes,
+            "new-library" => Action::NewLibrary,
             "settings" => Action::Settings,
             _ => Action::Open,
         };

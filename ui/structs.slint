@@ -79,6 +79,15 @@ export struct NoteFilter {
     on: bool,
 }
 
+// A library on the home screen: its icon, or the user's picture.
+export struct LibraryItem {
+    name: string,
+    icon: string,
+    image: image,
+    has-image: bool,
+    count: string,
+}
+
 export struct RecentItem {
     title: string,
     folder: string,

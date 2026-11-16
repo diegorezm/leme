@@ -148,6 +148,7 @@ src/
   store.rs        // reading history and last session (state.txt)
   nav.rs          // pure page navigation and page-number parsing
   update.rs       // update check and install from GitHub releases
+  library.rs      // libraries: named document collections shared by sessions (libraries.toml)
   web.rs          // web pages saved as documents: fetch through curl, where they're kept
   html.rs         // pure: readable text (headings, paragraphs, styles) from an HTML page
   typeset.rs      // typesets a page's text into a PDF with PDFium's built-in fonts
@@ -167,9 +168,9 @@ The PDF worker processes one small unit at a time (text selection > page render 
 
 Rules:
 - `.slint` files expose properties and callbacks; they contain no business logic beyond trivial layout/visibility bindings.
-- `pdf`, `recover`, `typeset`, `html`, `web`, `layout`, `cache`, `nav`, `keymap`, `palette`, `search`, `annotations`, `export`, `study`, `config`, `store` must not depend on Slint UI types, so they are unit-testable (`keymap` only uses Slint's key constants). Only `main.rs`, `app.rs`, and `viewer.rs` touch Slint types.
+- `pdf`, `recover`, `typeset`, `html`, `web`, `library`, `layout`, `cache`, `nav`, `keymap`, `palette`, `search`, `annotations`, `export`, `study`, `config`, `store` must not depend on Slint UI types, so they are unit-testable (`keymap` only uses Slint's key constants). Only `main.rs`, `app.rs`, and `viewer.rs` touch Slint types.
 - State flows one way: UI callback → `Action` → controller updates state → controller pushes properties to UI.
-- Paths: everything user-owned lives in `%APPDATA%\leme` (`config.toml`, `themes\`, `annotations\`, `state.txt`, `study.txt`); caches go in `%LOCALAPPDATA%\leme`. On Linux: `$XDG_CONFIG_HOME/leme` (`~/.config/leme`) and `$XDG_CACHE_HOME/leme` (`~/.cache/leme`); see `config::data_dir`/`cache_dir`. Platform code is behind `#[cfg(windows)]`. Never write next to the executable, in the document folder, or into the PDF.
+- Paths: everything user-owned lives in `%APPDATA%\leme` (`config.toml`, `themes\`, `annotations\`, `pages\`, `libraries.toml`, `state.txt`, `study.txt`); caches go in `%LOCALAPPDATA%\leme`. On Linux: `$XDG_CONFIG_HOME/leme` (`~/.config/leme`) and `$XDG_CACHE_HOME/leme` (`~/.cache/leme`); see `config::data_dir`/`cache_dir`. Platform code is behind `#[cfg(windows)]`. Never write next to the executable, in the document folder, or into the PDF.
 - User files must never block startup: parse leniently, fall back to defaults, and report problems in Settings.
 - Every user-visible text is English in the source and translated: `@tr("…")` in `.slint`, `i18n::tr` / `trf` in Rust (`{}` placeholders, like `@tr`). Add each new text to `translations/pt-BR/LC_MESSAGES/leme.po`; a test checks placeholders match. Brazilian Portuguese is the default language.
 - Grow the module tree when needed; do not create empty modules ahead of time.

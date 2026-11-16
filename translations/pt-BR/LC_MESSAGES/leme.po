@@ -790,3 +790,90 @@ msgstr "Não encontrados após atualizar"
 
 msgid "{} highlights not found; they are listed last in notes"
 msgstr "{} destaques não encontrados; estão no fim das notas"
+
+msgid "Libraries"
+msgstr "Bibliotecas"
+
+msgid "Libraries…"
+msgstr "Bibliotecas…"
+
+msgid "New library…"
+msgstr "Nova biblioteca…"
+
+msgid "New library"
+msgstr "Nova biblioteca"
+
+msgid "Add document to library…"
+msgstr "Adicionar documento à biblioteca…"
+
+msgid "Rename library"
+msgstr "Renomear biblioteca"
+
+msgid "A library with that name already exists"
+msgstr "Já existe uma biblioteca com esse nome"
+
+msgid "Added to {}"
+msgstr "Adicionado a {}"
+
+msgid "Remove this document from {}"
+msgstr "Remover este documento de {}"
+
+msgid "Add this document to {}"
+msgstr "Adicionar este documento a {}"
+
+msgid "Change the icon of {}…"
+msgstr "Mudar o ícone de {}…"
+
+msgid "Use a picture for {}…"
+msgstr "Usar uma imagem para {}…"
+
+msgid "Rename {}…"
+msgstr "Renomear {}…"
+
+msgid "Delete library {}"
+msgstr "Excluir a biblioteca {}"
+
+msgid "Picture for {}"
+msgstr "Imagem para {}"
+
+msgid "Deleted library {} (its documents are kept)"
+msgstr "Biblioteca {} excluída (os documentos continuam)"
+
+msgid "Couldn't save libraries: {}"
+msgstr "Não foi possível salvar as bibliotecas: {}"
+
+msgid "1 document"
+msgstr "1 documento"
+
+msgid "{} documents"
+msgstr "{} documentos"
+
+msgid "Book"
+msgstr "Livro"
+
+msgid "Scales"
+msgstr "Balança"
+
+msgid "Bookmark"
+msgstr "Marcador"
+
+msgid "Star"
+msgstr "Estrela"
+
+msgid "Folder"
+msgstr "Pasta"
+
+msgid "Code"
+msgstr "Código"
+
+msgid "Flask"
+msgstr "Frasco"
+
+msgid "Globe"
+msgstr "Globo"
+
+msgid "Pencil"
+msgstr "Lápis"
+
+msgid "Heart"
+msgstr "Coração"
