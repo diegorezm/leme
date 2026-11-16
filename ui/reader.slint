@@ -1507,12 +1507,15 @@ export component LibraryScreen inherits Rectangle {
                         alignment: center;
                         spacing: 8px;
 
-                        Icon {
-                            x: (parent.width - self.width) / 2;
-                            width: 18px;
-                            height: 18px;
-                            name: "plus";
-                            color: add-touch.has-hover ? Theme.text : Theme.text-muted;
+                        HorizontalLayout {
+                            alignment: center;
+
+                            Icon {
+                                width: 18px;
+                                height: 18px;
+                                name: "plus";
+                                color: add-touch.has-hover ? Theme.text : Theme.text-muted;
+                            }
                         }
                         Text {
                             text: @tr("Add documents");

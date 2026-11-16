@@ -881,11 +881,14 @@ export component SettingsView inherits Rectangle {
                                     spacing: 10px;
                                     padding: 12px;
 
-                                    Icon {
-                                        x: (parent.width - self.width) / 2;
-                                        width: 20px;
-                                        height: 20px;
-                                        name: "plus";
+                                    HorizontalLayout {
+                                        alignment: center;
+
+                                        Icon {
+                                            width: 20px;
+                                            height: 20px;
+                                            name: "plus";
+                                        }
                                     }
                                     Rectangle {
                                         height: 22px;
