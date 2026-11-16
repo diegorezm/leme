@@ -2,6 +2,24 @@
 
 All notable changes to Leme (called dpdf until 1.1.0). Versions follow [Semantic Versioning](https://semver.org/).
 
+## 2.1.0 — 2026-11-16
+
+### Added
+
+- **Add to session panel** (`Ctrl+O`): choose a file, paste a PDF's path,
+  or pick a recent document from any session.
+- **Web pages as documents.** Paste an address and Leme saves the page as
+  a PDF you can highlight, annotate, and search offline. *Update page from
+  the web* downloads it again; highlights find their text again, and those
+  whose text is gone are listed last in the notes.
+- **Laws from planalto.gov.br** come without the letterhead, with Títulos,
+  Capítulos, and Seções as the outline, and revoked text hidden (*Show or
+  hide revoked text*, or `show_revoked = true`).
+- **Links in saved pages** work: jumps within the page, other laws open in
+  Leme, the rest in the browser.
+- **Resizable side panel** (drag its edge; double-click resets) and
+  scrollbars in thumbnails, outline, and notes.
+
 ## 2.0.1 — 2026-11-16
 
 ### Changed
