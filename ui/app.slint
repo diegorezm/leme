@@ -136,7 +136,7 @@ export component AppWindow inherits Window {
     in-out property <string> status;
     // Shortcuts shown next to controls: fit width, fit page, zoom out,
     // zoom in, reset zoom, palette, mark section, export notes, add note,
-    // copy, search, search session, open, toggle sidebar.
+    // copy, search, search session, open, toggle sidebar, settings.
     in property <[string]> header-keys;
     in property <int> zoom-percent: 100;
     // "fit-width", "fit-page", or "custom".
@@ -629,6 +629,16 @@ export component AppWindow inherits Window {
                         Kbd {
                             y: (parent.height - self.height) / 2;
                             text: root.header-keys[5];
+                        }
+                    }
+                    QuietButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: "settings";
+                        icon-size: 16px;
+                        tip: @tr("Settings");
+                        tip-keys: root.header-keys[14];
+                        clicked => {
+                            root.header-action("settings");
                         }
                     }
                 }

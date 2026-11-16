@@ -227,6 +227,7 @@ fn main() -> Result<(), slint::PlatformError> {
             "goto" => Action::GoToPage,
             "palette" => Action::CommandPalette,
             "export" => Action::ExportNotes,
+            "settings" => Action::Settings,
             _ => Action::Open,
         };
         app.run(&win, action)

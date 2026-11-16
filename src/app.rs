@@ -26,7 +26,6 @@ use crate::{
     AppWindow, HighlightRow, KeyRow, PaletteItem, RecentItem, SearchHit, SettingsWindow,
     SubjectItem, TabItem, Theme, ThemeCard,
 };
-
 const PALETTE_LIMIT: usize = 12;
 /// Entries of one kind (themes, commands, tabs) the palette lists at once.
 const PALETTE_GROUP_LIMIT: usize = 5;
@@ -46,7 +45,7 @@ const THEME_TAGLINES: [(&str, &str); 3] = [
 ];
 /// Actions whose shortcuts the window shows next to its controls, in the
 /// order of its `header-keys`.
-const HINT_KEYS: [Action; 14] = [
+const HINT_KEYS: [Action; 15] = [
     Action::FitWidth,
     Action::FitPage,
     Action::ZoomOut,
@@ -61,6 +60,7 @@ const HINT_KEYS: [Action; 14] = [
     Action::SearchSession,
     Action::Open,
     Action::ToggleSidebar,
+    Action::Settings,
 ];
 /// Characters a session search needs before it starts.
 const MIN_SESSION_QUERY: usize = 3;

@@ -10,32 +10,32 @@ Download `leme-<version>-setup.exe` (installs per user, no admin needed, optiona
 
 The defaults. All of them can be changed (see [Customizing](#customizing)), and Settings → Keybindings lists every action.
 
-| Shortcut | Action |
-|---|---|
-| `Ctrl+O` | Open PDFs (in new tabs) |
-| `Ctrl+K` / `Ctrl+Shift+P` | Command palette |
-| `Ctrl+F` | Search (`Enter` / `Shift+Enter` for next / previous match) |
-| `Ctrl+Shift+F` | Search the text of every tab in the session |
-| `Ctrl+P` | Go to page, or to an article of a law (`art. 37`) |
-| `Ctrl++` / `Ctrl+-` / `Ctrl`+wheel | Zoom in / out |
-| `Ctrl+0` or `Ctrl+1` / `Ctrl+2` | Fit width / fit page |
-| `Ctrl+B` | Toggle sidebar |
-| `Ctrl+Shift+T` / `O` / `A` | Sidebar: thumbnails / outline / notes |
-| `Ctrl+.` | Focus mode |
-| `F11` | Fullscreen |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` / `Ctrl+W` | Next / previous / close tab |
-| `Alt+Home` | Home screen (tabs stay open) |
-| `Ctrl+Shift+S` / `Ctrl+Shift+N` | Switch session / new session |
-| `←` `→` `PgUp` `PgDn` / `↑` `↓` | Previous / next page / scroll |
-| `Home` / `End` | First / last page |
-| `Ctrl+C` / `Ctrl+H` / `Ctrl+N` | Copy / highlight / add a note to the selection |
-| `1` … `5` | Highlight the selection in that color, or recolor the clicked highlight |
-| `Ctrl+Z` / `Ctrl+Y` | Undo / redo annotation changes |
-| `Ctrl+L` | Mark the current outline section read, then reviewed once, twice |
-| `Ctrl+E` | Export notes: Markdown, Anki, or CSV |
-| `Ctrl+T` | Pause / resume the study timer |
-| `Ctrl+,` | Settings |
-| `Esc` | Close overlay, clear selection, leave fullscreen or focus mode |
+| Shortcut                                 | Action                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------- |
+| `Ctrl+O`                                 | Open PDFs (in new tabs)                                                 |
+| `Ctrl+K` / `Ctrl+Shift+P`                | Command palette                                                         |
+| `Ctrl+F`                                 | Search (`Enter` / `Shift+Enter` for next / previous match)              |
+| `Ctrl+Shift+F`                           | Search the text of every tab in the session                             |
+| `Ctrl+P`                                 | Go to page, or to an article of a law (`art. 37`)                       |
+| `Ctrl++` / `Ctrl+-` / `Ctrl`+wheel       | Zoom in / out                                                           |
+| `Ctrl+0` or `Ctrl+1` / `Ctrl+2`          | Fit width / fit page                                                    |
+| `Ctrl+B`                                 | Toggle sidebar                                                          |
+| `Ctrl+Shift+T` / `O` / `A`               | Sidebar: thumbnails / outline / notes                                   |
+| `Ctrl+.`                                 | Focus mode                                                              |
+| `F11`                                    | Fullscreen                                                              |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` / `Ctrl+W` | Next / previous / close tab                                             |
+| `Alt+Home`                               | Home screen (tabs stay open)                                            |
+| `Ctrl+Shift+S` / `Ctrl+Shift+N`          | Switch session / new session                                            |
+| `←` `→` `PgUp` `PgDn` / `↑` `↓`          | Previous / next page / scroll                                           |
+| `Home` / `End`                           | First / last page                                                       |
+| `Ctrl+C` / `Ctrl+H` / `Ctrl+N`           | Copy / highlight / add a note to the selection                          |
+| `1` … `5`                                | Highlight the selection in that color, or recolor the clicked highlight |
+| `Ctrl+Z` / `Ctrl+Y`                      | Undo / redo annotation changes                                          |
+| `Ctrl+L`                                 | Mark the current outline section read, then reviewed once, twice        |
+| `Ctrl+E`                                 | Export notes: Markdown, Anki, or CSV                                    |
+| `Ctrl+T`                                 | Pause / resume the study timer                                          |
+| `Ctrl+,`                                 | Settings                                                                |
+| `Esc`                                    | Close overlay, clear selection, leave fullscreen or focus mode          |
 
 With **vim keys** on: `j` `k` `h` `l` scroll, `Ctrl+D` / `Ctrl+U` half screen, `J` / `K` next / previous page, `gg` / `G` first / last page, `/` search, `n` / `N` next / previous match, `:` palette, `gt` / `gT` tabs, `zi` `zo` `zw` `zp` zoom, `y` copy, `u` / `Ctrl+R` undo / redo, `t` sidebar.
 

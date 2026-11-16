@@ -4,6 +4,7 @@ import { Toggle, Select, Segmented, Button, QuietButton, Field, Icon, Kbd, Label
 
 component NavItem inherits Rectangle {
     in property <string> text;
+    in property <string> icon;
     in property <bool> active;
     callback clicked();
 
@@ -11,9 +12,15 @@ component NavItem inherits Rectangle {
     border-radius: Theme.radius;
     background: root.active ? Theme.raised : touch.has-hover ? Theme.hover : transparent;
 
-    Text {
+    Icon {
         x: 12px;
-        width: parent.width - 24px;
+        y: (parent.height - self.height) / 2;
+        name: root.icon;
+        color: root.active || touch.has-hover ? Theme.text : Theme.text-muted;
+    }
+    Text {
+        x: 36px;
+        width: parent.width - 48px;
         text: root.text;
         color: root.active || touch.has-hover ? Theme.text : Theme.text-muted;
         font-size: Theme.font-size;
@@ -275,6 +282,7 @@ export component SettingsView inherits Rectangle {
 
                 if root.show-general: NavItem {
                     text: @tr("General");
+                    icon: "general";
                     active: root.section == "general";
                     clicked => {
                         root.section = "general";
@@ -282,6 +290,7 @@ export component SettingsView inherits Rectangle {
                 }
                 if root.show-reading: NavItem {
                     text: @tr("Reading and study");
+                    icon: "reading";
                     active: root.section == "reading";
                     clicked => {
                         root.section = "reading";
@@ -289,6 +298,7 @@ export component SettingsView inherits Rectangle {
                 }
                 if root.show-theme || root.show-appearance: NavItem {
                     text: @tr("Appearance");
+                    icon: "appearance";
                     active: root.appearance;
                     clicked => {
                         root.section = "appearance";
@@ -296,6 +306,7 @@ export component SettingsView inherits Rectangle {
                 }
                 if root.show-keys: NavItem {
                     text: @tr("Keys");
+                    icon: "keys";
                     active: root.section == "keys";
                     clicked => {
                         root.section = "keys";
@@ -303,6 +314,7 @@ export component SettingsView inherits Rectangle {
                 }
                 if root.show-files: NavItem {
                     text: @tr("Files");
+                    icon: "file";
                     active: root.section == "files";
                     clicked => {
                         root.section = "files";
@@ -315,6 +327,7 @@ export component SettingsView inherits Rectangle {
 
                 NavItem {
                     text: @tr("About Leme");
+                    icon: "about";
                     active: root.section == "about";
                     clicked => {
                         root.section = "about";
