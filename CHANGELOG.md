@@ -2,6 +2,13 @@
 
 All notable changes to Leme (called dpdf until 1.1.0). Versions follow [Semantic Versioning](https://semver.org/).
 
+## 2.0.1 — 2026-11-16
+
+### Changed
+
+- **Settings button** back in the header, right of the command search.
+- **Settings icons** back next to each section in the settings sidebar.
+
 ## 2.0.0 — 2026-11-15
 
 ### Changed
