@@ -7,7 +7,8 @@ pub struct Match {
     pub rects: Vec<NormRect>,
 }
 
-/// Results of one search, filled in page order as the worker reports them.
+/// Results of one search, kept in page order. The worker reports pages
+/// from the reader's page onward, then wraps around to the start.
 pub struct SearchState {
     pub id: u64,
     matches: Vec<Match>,
@@ -30,12 +31,18 @@ impl SearchState {
 
     /// Adds a page's matches. Returns true if the selection changed.
     pub fn add(&mut self, page: usize, rects: Vec<Vec<NormRect>>) -> bool {
-        let first_new = self.matches.len();
+        let at = self.matches.partition_point(|m| m.page < page);
+        let added = rects.len();
         self.matches
-            .extend(rects.into_iter().map(|rects| Match { page, rects }));
-        if self.current.is_none() && page >= self.start_page && first_new < self.matches.len() {
-            self.current = Some(first_new);
-            return true;
+            .splice(at..at, rects.into_iter().map(|rects| Match { page, rects }));
+        match &mut self.current {
+            Some(current) if *current >= at => *current += added,
+            Some(_) => {}
+            None if page >= self.start_page && added > 0 => {
+                self.current = Some(at);
+                return true;
+            }
+            None => {}
         }
         false
     }
@@ -117,6 +124,18 @@ mod tests {
         assert_eq!(s.status(), "2 / 3+");
         assert!(!s.finish());
         assert_eq!(s.status(), "2 / 3");
+    }
+
+    #[test]
+    fn pages_before_the_start_arrive_last_and_sort_first() {
+        let mut s = SearchState::new(1, 5);
+        assert!(s.add(6, vec![vec![rect()]]));
+        assert!(!s.add(2, vec![vec![rect()], vec![rect()]]));
+        assert_eq!(s.current().map(|m| m.page), Some(6));
+        assert_eq!(s.status(), "3 / 3+");
+        s.next();
+        assert_eq!(s.current().map(|m| m.page), Some(2));
+        assert_eq!(s.on_page(2).count(), 2);
     }
 
     #[test]

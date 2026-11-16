@@ -369,12 +369,7 @@ pub type PageBuffer = SharedPixelBuffer<Rgb8Pixel>;
 /// Converts a rendered bitmap for the UI. Called on the worker thread, so
 /// the UI thread never copies pixels.
 pub fn to_buffer(bitmap: Bitmap) -> PageBuffer {
-    let mut buffer = PageBuffer::new(bitmap.width, bitmap.height);
-    let rgba = bitmap.rgba.as_chunks::<4>().0;
-    for (dst, src) in buffer.make_mut_slice().iter_mut().zip(rgba) {
-        *dst = Rgb8Pixel::new(src[0], src[1], src[2]);
-    }
-    buffer
+    PageBuffer::clone_from_slice(&bitmap.rgb, bitmap.width, bitmap.height)
 }
 
 pub fn file_name(path: &Path) -> String {

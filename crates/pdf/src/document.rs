@@ -168,6 +168,11 @@ pub(crate) fn load_page<'a>(doc: &'a PdfDocument, page: usize) -> Result<PdfPage
     doc.pages().get(index)
 }
 
+/// A page's text, or `None` if the page can't be read.
+pub(crate) fn page_text(doc: &PdfDocument, page: usize) -> Option<String> {
+    Some(load_page(doc, page).ok()?.text().ok()?.all())
+}
+
 pub(crate) fn file_title(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().into_owned())

@@ -46,11 +46,11 @@ pub(crate) fn find_in_text(text: &str, query: &[char]) -> Option<(usize, String)
 
 /// Searches one page of a file search, or opens its next document.
 /// Returns true when the search is finished.
-pub(crate) fn search_files_step<'a>(
+pub(crate) fn search_files_step<'a, B>(
     pdfium: &'a Pdfium,
     job: &mut FilesJob<'a>,
     texts: &mut FileTexts,
-    on_event: &impl Fn(Event),
+    on_event: &impl Fn(Event<B>),
 ) -> bool {
     if job.hits >= MAX_FILE_HITS {
         return true;
@@ -83,11 +83,7 @@ pub(crate) fn search_files_step<'a>(
         if doc.is_none() {
             *doc = open(pdfium, path, None).ok().map(|(d, _)| d);
         }
-        *slot = doc.as_ref().and_then(|d| {
-            load_page(d, *page)
-                .ok()
-                .and_then(|p| p.text().ok().map(|t| t.all()))
-        });
+        *slot = doc.as_ref().and_then(|d| page_text(d, *page));
     }
     if let Some((matches, snippet)) = slot.as_deref().and_then(|t| find_in_text(t, &job.query)) {
         job.hits += 1;

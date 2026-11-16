@@ -50,9 +50,10 @@ pub enum Request {
     },
     /// Replaces the thumbnail queue. Thumbnails run after renders and search.
     Thumbnails { pages: Vec<usize>, width_px: u32 },
-    /// Starts a search over all pages, replacing any running one. An empty
-    /// query just cancels.
-    Search { id: u64, query: String },
+    /// Starts a search over all pages, from page `from` onward and then
+    /// wrapping around, replacing any running one. An empty query just
+    /// cancels.
+    Search { id: u64, query: String, from: usize },
     /// Selects the text between two points, each a page and a point in
     /// page fractions. The points may be on different pages.
     Select {
@@ -106,8 +107,8 @@ pub enum LinkTarget {
     Uri(String),
 }
 
-/// `B` is the bitmap type: the worker sends `Bitmap`s, which the receiver
-/// may convert (with `map_bitmap`) before handing them to the UI thread.
+/// `B` is the bitmap type the receiver wants: the worker converts each
+/// `Bitmap` with the function given to `Worker::spawn`, on its own thread.
 pub enum Event<B = Bitmap> {
     /// `page_sizes` are in points, one per page.
     Opened {
@@ -183,71 +184,6 @@ pub enum Event<B = Bitmap> {
     Error(String),
 }
 
-impl<B> Event<B> {
-    /// Converts the bitmap of a render or thumbnail, if any.
-    pub fn map_bitmap<C>(self, f: impl FnOnce(B) -> C) -> Event<C> {
-        match self {
-            Event::Rendered {
-                page,
-                width_px,
-                bitmap,
-            } => Event::Rendered {
-                page,
-                width_px,
-                bitmap: f(bitmap),
-            },
-            Event::Thumbnail { page, bitmap } => Event::Thumbnail {
-                page,
-                bitmap: f(bitmap),
-            },
-            Event::Cover {
-                path,
-                bitmap,
-                pages,
-            } => Event::Cover {
-                path,
-                bitmap: f(bitmap),
-                pages,
-            },
-            Event::Opened {
-                path,
-                title,
-                page_sizes,
-                outline,
-            } => Event::Opened {
-                path,
-                title,
-                page_sizes,
-                outline,
-            },
-            Event::PasswordNeeded { path, retry } => Event::PasswordNeeded { path, retry },
-            Event::Labels(labels) => Event::Labels(labels),
-            Event::Link(target) => Event::Link(target),
-            Event::SearchHits { id, page, matches } => Event::SearchHits { id, page, matches },
-            Event::SearchDone { id } => Event::SearchDone { id },
-            Event::Selection(parts) => Event::Selection(parts),
-            Event::FileHit {
-                id,
-                path,
-                page,
-                snippet,
-                count,
-            } => Event::FileHit {
-                id,
-                path,
-                page,
-                snippet,
-                count,
-            },
-            Event::FilesDone { id } => Event::FilesDone { id },
-            Event::Article { number, page } => Event::Article { number, page },
-            Event::Typeset { path, result } => Event::Typeset { path, result },
-            Event::Relocated { path, found } => Event::Relocated { path, found },
-            Event::Error(message) => Event::Error(message),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectionPart {
     pub page: usize,
@@ -261,8 +197,8 @@ pub struct SelectionPart {
 pub struct Bitmap {
     pub width: u32,
     pub height: u32,
-    /// Tightly packed RGBA8 pixels.
-    pub rgba: Vec<u8>,
+    /// Tightly packed RGB8 pixels.
+    pub rgb: Vec<u8>,
 }
 
 pub struct Worker {
@@ -270,10 +206,14 @@ pub struct Worker {
 }
 
 impl Worker {
-    /// Spawns the worker. `on_event` is called from the worker thread.
-    pub fn spawn(on_event: impl Fn(Event) + Send + 'static) -> Self {
+    /// Spawns the worker. `convert` and `on_event` run on the worker
+    /// thread, so pixel copies stay off the UI thread.
+    pub fn spawn<B: 'static>(
+        convert: fn(Bitmap) -> B,
+        on_event: impl Fn(Event<B>) + Send + 'static,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
-        thread::spawn(move || run(rx, on_event));
+        thread::spawn(move || run(rx, convert, on_event));
         Self { tx }
     }
 
@@ -454,16 +394,20 @@ mod tests {
 
     #[test]
     fn refined_search_skips_pages_without_the_shorter_query() {
-        let mut first = SearchJob::new(1, "Foo".into(), 10, None);
+        assert_eq!(
+            SearchJob::new(1, "Foo".into(), 5, 3, None).pages,
+            [3, 4, 0, 1, 2]
+        );
+        let mut first = SearchJob::new(1, "Foo".into(), 10, 0, None);
         assert_eq!(first.pages, (0..10).collect::<Vec<_>>());
         // Stopped after page 5, with matches on 2 and 4.
         while first.next < 6 {
             first.next_page();
         }
         first.hits = vec![2, 4];
-        let narrowed = SearchJob::new(2, "foobar".into(), 10, Some(first));
+        let narrowed = SearchJob::new(2, "foobar".into(), 10, 0, Some(first));
         assert_eq!(narrowed.pages, [2, 4, 6, 7, 8, 9]);
-        let other = SearchJob::new(3, "baz".into(), 10, Some(narrowed));
+        let other = SearchJob::new(3, "baz".into(), 10, 0, Some(narrowed));
         assert_eq!(other.pages.len(), 10);
         assert!(!refines("", "a"));
         assert_eq!(utf16le(&[b'i', 0, b'v', 0, 0, 0]), "iv");
@@ -484,12 +428,24 @@ mod tests {
     }
 
     #[test]
-    fn paper_tints_white_and_keeps_black() {
-        let mut px = [255, 255, 255, 77, 0, 0, 0, 255, 128, 128, 128, 255];
-        tint_paper(&mut px, [234, 223, 200]);
-        assert_eq!(px[..4], [234, 223, 200, 77]);
-        assert_eq!(px[4..8], [0, 0, 0, 255]);
-        assert_eq!(px[8..], [117, 112, 100, 255]);
+    fn tints_pack_to_rgb() {
+        let px = vec![255, 255, 255, 77, 0, 0, 0, 255, 128, 128, 128, 255];
+        let packed = |tint| {
+            let mut px = px.clone();
+            pack_rgb(&mut px, &tint_lut(tint));
+            px
+        };
+        assert_eq!(
+            packed(PageTint::None),
+            [255, 255, 255, 0, 0, 0, 128, 128, 128]
+        );
+        // Paper tints white and keeps black.
+        assert_eq!(
+            packed(PageTint::Paper([234, 223, 200])),
+            [234, 223, 200, 0, 0, 0, 117, 112, 100]
+        );
+        // Night: white becomes dark grey, black a soft light grey.
+        assert_eq!(packed(PageTint::Inverted)[..6], [24, 24, 24, 230, 230, 230]);
     }
 
     /// Timings for a large document: `LEME_BENCH_PDF=<file> cargo test
@@ -524,13 +480,14 @@ mod tests {
             }
             println!("{label}: {:.1} ms avg", ms(t) / pages.len() as f64);
         }
-        let mut bitmap = render(&doc, 0, 1600, PageTint::None, true).unwrap();
         let t = Instant::now();
-        invert(&mut bitmap.rgba);
-        println!("invert 1600 px: {:.2} ms", ms(t));
-        let t = Instant::now();
-        tint_paper(&mut bitmap.rgba, [234, 223, 200]);
-        println!("paper tint 1600 px: {:.2} ms", ms(t));
+        for &page in &pages {
+            render(&doc, page, 1600, PageTint::Inverted, true).unwrap();
+        }
+        println!(
+            "night render 1600 px: {:.1} ms avg",
+            ms(t) / pages.len() as f64
+        );
         let t = Instant::now();
         for page in 0..sizes.len() {
             search_page(&doc, page, "holmes", None).unwrap();
@@ -541,7 +498,7 @@ mod tests {
         let mut last: Option<SearchJob> = None;
         let mut texts = vec![None; sizes.len()];
         for end in 1..="holmes".len() {
-            let mut job = SearchJob::new(0, "holmes"[..end].into(), sizes.len(), last.take());
+            let mut job = SearchJob::new(0, "holmes"[..end].into(), sizes.len(), 0, last.take());
             while let Some(page) = job.next_page() {
                 let text = texts.get_mut(page);
                 if !search_page(&doc, page, &job.query, text)
@@ -585,7 +542,7 @@ mod tests {
         assert_eq!(sizes, vec![(200.0, 300.0); 2]);
         let bitmap = render(&doc, 1, 100, PageTint::None, true).unwrap();
         assert_eq!((bitmap.width, bitmap.height), (100, 150));
-        assert_eq!(bitmap.rgba.len(), 100 * 150 * 4);
+        assert_eq!(bitmap.rgb.len(), 100 * 150 * 3);
         assert!(render(&doc, 5, 100, PageTint::None, true).is_err());
         assert_eq!(
             search_page(&doc, 0, "anything", None).unwrap(),

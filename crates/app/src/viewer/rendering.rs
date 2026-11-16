@@ -13,8 +13,12 @@ impl Viewer {
         let visible = self.visible.clone();
         self.cache
             .insert(page, width_px, bytes, Image::from_rgb8(bitmap), &visible);
-        // Only this page's item changes; rebuilding them all would recreate
-        // every page's image, highlight, and mark items.
+        self.refresh_page(window, page);
+    }
+
+    /// Rebuilds one page's item, if shown. Rebuilding them all would
+    /// recreate every page's image, highlight, and mark items.
+    pub(super) fn refresh_page(&mut self, window: &AppWindow, page: usize) {
         let row = self
             .shown_pages
             .as_ref()

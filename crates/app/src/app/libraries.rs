@@ -509,27 +509,8 @@ impl App {
     }
 
     pub(super) fn update_libraries(&self, window: &AppWindow) {
-        let items: Vec<LibraryItem> = self
-            .libraries
-            .items
-            .iter()
-            .map(|l| {
-                let image = l
-                    .image
-                    .as_deref()
-                    .and_then(|p| slint::Image::load_from_path(p).ok());
-                LibraryItem {
-                    name: l.name.as_str().into(),
-                    icon: l.icon.as_str().into(),
-                    has_image: image.is_some(),
-                    image: image.unwrap_or_default(),
-                    count: l.documents.len().to_string().into(),
-                }
-            })
-            .collect();
-        window.set_libraries(Rc::new(VecModel::from(items)).into());
-
-        let rows: Vec<LibraryRow> = self
+        // Each cover image is decoded once, for the start screen and Settings.
+        let (items, rows): (Vec<LibraryItem>, Vec<LibraryRow>) = self
             .libraries
             .items
             .iter()
@@ -540,17 +521,26 @@ impl App {
                     .and_then(|p| slint::Image::load_from_path(p).ok());
                 let documents: Vec<slint::SharedString> =
                     l.documents.iter().map(|d| file_name(d).into()).collect();
-                LibraryRow {
+                let item = LibraryItem {
                     name: l.name.as_str().into(),
                     icon: l.icon.as_str().into(),
+                    has_image: image.is_some(),
+                    image: image.clone().unwrap_or_default(),
+                    count: l.documents.len().to_string().into(),
+                };
+                let row = LibraryRow {
+                    name: item.name.clone(),
+                    icon: item.icon.clone(),
                     icon_title: tr(icon_title(&l.icon)).into(),
                     has_image: image.is_some(),
                     image: image.unwrap_or_default(),
                     count: document_count(l.documents.len()).into(),
                     documents: Rc::new(VecModel::from(documents)).into(),
-                }
+                };
+                (item, row)
             })
-            .collect();
+            .unzip();
+        window.set_libraries(Rc::new(VecModel::from(items)).into());
         self.settings
             .set_library_rows(Rc::new(VecModel::from(rows)).into());
         let icons: Vec<slint::SharedString> = library::ICONS

@@ -67,22 +67,25 @@ pub(crate) struct SearchJob {
 }
 
 impl SearchJob {
-    /// A search of all `page_count` pages, or, when `query` refines the
-    /// `previous` one (typing more letters), only of the pages that query
-    /// matched plus those it had not reached yet.
+    /// A search of all `page_count` pages, from `from` onward and then
+    /// wrapping, or, when `query` refines the `previous` one (typing more
+    /// letters), only of the pages that query matched plus those it had not
+    /// reached yet.
     pub(crate) fn new(
         id: u64,
         query: String,
         page_count: usize,
+        from: usize,
         previous: Option<SearchJob>,
     ) -> Self {
+        let from = from.min(page_count);
         let pages = match previous {
             Some(prev) if refines(&prev.query, &query) => {
                 let mut pages = prev.hits;
                 pages.extend_from_slice(prev.pages.get(prev.next..).unwrap_or_default());
                 pages
             }
-            _ => (0..page_count).collect(),
+            _ => (from..page_count).chain(0..from).collect(),
         };
         Self {
             id,
@@ -175,7 +178,7 @@ pub(crate) struct ArticleJob {
     pub(crate) next: usize,
 }
 
-pub(crate) fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
+pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: impl Fn(Event<B>)) {
     let pdfium = match bind() {
         Ok(pdfium) => pdfium,
         Err(err) => {
@@ -371,10 +374,11 @@ pub(crate) fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
                 article = Some(ArticleJob { number, next: 0 });
                 continue;
             }
-            Some(Request::Search { id, query }) => {
+            Some(Request::Search { id, query, from }) => {
                 let previous = search.take().or(last_search.take());
                 let count = documents.front().map_or(0, |d| d.page_sizes.len());
-                search = (!query.is_empty()).then(|| SearchJob::new(id, query, count, previous));
+                search =
+                    (!query.is_empty()).then(|| SearchJob::new(id, query, count, from, previous));
                 continue;
             }
             None => {}
@@ -391,7 +395,7 @@ pub(crate) fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
                 if let Ok((bitmap, pages)) = cover {
                     on_event(Event::Cover {
                         path,
-                        bitmap,
+                        bitmap: convert(bitmap),
                         pages,
                     });
                 }
@@ -453,9 +457,7 @@ pub(crate) fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
         } else if let Some(job) = &mut article {
             let page = job.next;
             job.next += 1;
-            let found = load_page(doc, page)
-                .ok()
-                .and_then(|p| p.text().ok().map(|t| t.all()))
+            let found = page_text(doc, page)
                 .is_some_and(|text| domain::nav::starts_article(&text, job.number));
             if found || job.next >= page_sizes.len() {
                 on_event(Event::Article {
@@ -471,7 +473,7 @@ pub(crate) fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
                 on_event(Event::Rendered {
                     page,
                     width_px,
-                    bitmap,
+                    bitmap: convert(bitmap),
                 });
             }
         } else if let Some(page) = renders.pages.pop_front() {
@@ -480,7 +482,7 @@ pub(crate) fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
                 Ok(bitmap) => on_event(Event::Rendered {
                     page,
                     width_px,
-                    bitmap,
+                    bitmap: convert(bitmap),
                 }),
                 Err(err) => on_event(Event::Error(format!(
                     "Couldn't render page {}: {err}",
@@ -509,7 +511,10 @@ pub(crate) fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
             let width_px = thumbs.width_px;
             // A missing thumbnail isn't worth interrupting the reader for.
             if let Ok(bitmap) = render(doc, page, width_px, tint, false) {
-                on_event(Event::Thumbnail { page, bitmap });
+                on_event(Event::Thumbnail {
+                    page,
+                    bitmap: convert(bitmap),
+                });
             }
         } else if labels_due {
             labels_due = false;

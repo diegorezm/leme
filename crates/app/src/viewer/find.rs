@@ -9,7 +9,11 @@ impl Viewer {
         let query = query.trim().to_owned();
         self.search = (!query.is_empty()).then(|| SearchState::new(id, self.current_page));
         window.set_search_status("".into());
-        self.worker.send(Request::Search { id, query });
+        self.worker.send(Request::Search {
+            id,
+            query,
+            from: self.current_page,
+        });
         self.refresh(window);
     }
 
@@ -38,8 +42,10 @@ impl Viewer {
         if search.add(page, matches) {
             self.reveal_match(window);
         } else {
+            // Hits stream in page by page, on every page for a short query:
+            // only this page's highlights change.
             self.update_search_status(window);
-            self.refresh(window);
+            self.refresh_page(window, page);
         }
     }
 
@@ -60,6 +66,7 @@ impl Viewer {
             self.worker.send(Request::Search {
                 id: self.next_search_id,
                 query: String::new(),
+                from: 0,
             });
         }
         window.set_search_text("".into());
