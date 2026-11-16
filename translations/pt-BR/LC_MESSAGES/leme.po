@@ -913,3 +913,33 @@ msgstr "Os documentos continuam onde estão."
 
 msgid "Libraries keep documents for every session: saved pages and PDFs. Laws saved from planalto.gov.br go into Leis on their own."
 msgstr "As bibliotecas guardam documentos para todas as sessões: páginas salvas e PDFs. Leis salvas do planalto.gov.br entram em Leis sozinhas."
+
+msgid "Home"
+msgstr "Início"
+
+msgid "Search this library"
+msgstr "Buscar nesta biblioteca"
+
+msgid "Library options"
+msgstr "Opções da biblioteca"
+
+msgid "Documents"
+msgstr "Documentos"
+
+msgid "Found"
+msgstr "Encontrados"
+
+msgid "Add PDFs"
+msgstr "Adicionar PDFs"
+
+msgid "page {} of {}"
+msgstr "página {} de {}"
+
+msgid "Not started"
+msgstr "Não iniciado"
+
+msgid "File not found"
+msgstr "Arquivo não encontrado"
+
+msgid "{} studied"
+msgstr "{} de estudo"

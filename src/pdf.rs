@@ -65,6 +65,9 @@ pub enum Request {
     },
     /// Finds the page where article `number` of a law starts ("Art. 37").
     FindArticle { number: u32 },
+    /// Renders the first page of each document, `width_px` wide, as its
+    /// cover; replaces any covers still to do.
+    Covers { paths: Vec<PathBuf>, width_px: u32 },
     /// Finds where annotations' texts are in the document at `path`
     /// (rewritten since): id, text, and the page it was on.
     Relocate {
@@ -157,6 +160,12 @@ pub enum Event<B = Bitmap> {
         path: PathBuf,
         found: Vec<(u64, usize, Vec<NormRect>)>,
     },
+    /// A document's first page, and how many pages it has.
+    Cover {
+        path: PathBuf,
+        bitmap: B,
+        pages: usize,
+    },
     /// A web page was typeset to `path`, or why not.
     Typeset {
         path: PathBuf,
@@ -181,6 +190,15 @@ impl<B> Event<B> {
             Event::Thumbnail { page, bitmap } => Event::Thumbnail {
                 page,
                 bitmap: f(bitmap),
+            },
+            Event::Cover {
+                path,
+                bitmap,
+                pages,
+            } => Event::Cover {
+                path,
+                bitmap: f(bitmap),
+                pages,
             },
             Event::Opened {
                 path,
@@ -453,6 +471,7 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
     let mut files: Option<FilesJob> = None;
     let mut file_texts = FileTexts::default();
     let mut article: Option<ArticleJob> = None;
+    let mut covers: (VecDeque<PathBuf>, u32) = (VecDeque::new(), 0);
 
     loop {
         // Work on the live document the reader is waiting for, and work
@@ -465,8 +484,9 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
                 || select_line.is_some()
                 || link.is_some()
                 || article.is_some());
-        let background =
-            files.is_some() || (!documents.is_empty() && (!thumbs.pages.is_empty() || labels_due));
+        let background = files.is_some()
+            || !covers.0.is_empty()
+            || (!documents.is_empty() && (!thumbs.pages.is_empty() || labels_due));
         let idle = !urgent && !background;
         let request = if idle {
             match rx.recv() {
@@ -606,6 +626,10 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
                 on_event(Event::Typeset { path: out, result });
                 continue;
             }
+            Some(Request::Covers { paths, width_px }) => {
+                covers = (paths.into(), width_px);
+                continue;
+            }
             Some(Request::Relocate { path, items }) => {
                 let found = match open(&pdfium, &path, None) {
                     Ok((doc, sizes)) => relocate(&doc, sizes.len(), &items),
@@ -630,6 +654,20 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
         // Other documents are searched only when the live one has nothing
         // urgent to do, so reading never waits for them.
         if !urgent {
+            if let Some(path) = covers.0.pop_front() {
+                // Untinted: a cover shows the document as it is.
+                let cover = open(&pdfium, &path, None).and_then(|(doc, sizes)| {
+                    render(&doc, 0, covers.1, PageTint::None, false).map(|b| (b, sizes.len()))
+                });
+                if let Ok((bitmap, pages)) = cover {
+                    on_event(Event::Cover {
+                        path,
+                        bitmap,
+                        pages,
+                    });
+                }
+                continue;
+            }
             if let Some(job) = &mut files {
                 if search_files_step(&pdfium, job, &mut file_texts, &on_event) {
                     on_event(Event::FilesDone { id: job.id });

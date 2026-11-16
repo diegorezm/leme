@@ -306,6 +306,15 @@ impl Viewer {
         });
     }
 
+    /// Asks the worker for the first page of each of `paths`, as covers.
+    pub fn request_covers(&self, paths: Vec<PathBuf>) {
+        // Twice the card width, for sharp covers on high-DPI screens.
+        self.worker.send(Request::Covers {
+            paths,
+            width_px: 300,
+        });
+    }
+
     /// Asks the worker where the annotations of `path` now are, after the
     /// file was rewritten; `false` if it has none.
     pub fn relocate_annotations(&self, path: &Path) -> bool {

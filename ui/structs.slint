@@ -99,6 +99,17 @@ export struct LibraryRow {
     documents: [string],
 }
 
+// A document card in a library: its first page as cover, and progress.
+export struct BookCard {
+    title: string,
+    detail: string,
+    percent: string,
+    progress: float,
+    has-progress: bool,
+    cover: image,
+    has-cover: bool,
+}
+
 export struct RecentItem {
     title: string,
     folder: string,

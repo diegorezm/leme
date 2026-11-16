@@ -1,6 +1,7 @@
 //! Application state above the open document: tabs and the session,
 //! keybindings, the command palette, settings, themes, and overlays.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
@@ -27,8 +28,8 @@ use crate::viewer::PageBuffer;
 use crate::viewer::{file_name, to_color, ui_int, PopupOutcome, SidePanel, Viewer};
 use crate::web;
 use crate::{
-    AppWindow, HighlightRow, KeyRow, LibraryItem, LibraryRow, PaletteItem, RecentItem, SearchHit,
-    SettingsWindow, SubjectItem, TabItem, Theme, ThemeCard,
+    AppWindow, BookCard, HighlightRow, KeyRow, LibraryItem, LibraryRow, PaletteItem, RecentItem,
+    SearchHit, SettingsWindow, SubjectItem, TabItem, Theme, ThemeCard,
 };
 const PALETTE_LIMIT: usize = 12;
 /// Entries of one kind (themes, commands, tabs) the palette lists at once.
@@ -138,6 +139,13 @@ pub struct App {
     palette_items: Rc<VecModel<PaletteItem>>,
 
     libraries: Libraries,
+    /// The library shown in place of the home screen, and its search.
+    library_view: Option<usize>,
+    library_query: String,
+    /// The documents behind the library's cards, in order.
+    library_books: Vec<PathBuf>,
+    /// First pages of library documents, and their page counts.
+    covers: HashMap<PathBuf, (slint::Image, usize)>,
     /// An article to show once its law opens: the law's PDF or address.
     pending_article: Option<(Option<PathBuf>, Option<String>, u32)>,
 }
@@ -196,6 +204,10 @@ impl App {
             palette_items,
             libraries: Libraries::default(),
             pending_article: None,
+            library_view: None,
+            library_query: String::new(),
+            library_books: Vec::new(),
+            covers: HashMap::new(),
         };
         if let Some(path) = libraries_path() {
             let (libraries, problem) = Libraries::load(&path);
@@ -829,6 +841,10 @@ impl App {
             self.set_overlay(window, "");
             return;
         }
+        if self.library_view.is_some() {
+            self.close_library(window);
+            return;
+        }
         if self.viewer.clear_selection(window) {
             return;
         }
@@ -919,6 +935,7 @@ impl App {
 
     /// Opens a document in a new tab, or switches to it if already open.
     pub fn open_path(&mut self, window: &AppWindow, path: PathBuf) {
+        self.close_library(window);
         let index = match self.tabs.iter().position(|t| same_file(t, &path)) {
             Some(index) => index,
             None => {
@@ -978,6 +995,7 @@ impl App {
 
     /// Back to the home screen; the tabs stay open.
     pub fn go_home(&mut self, window: &AppWindow) {
+        self.close_library(window);
         self.viewer.close(window);
         self.active = None;
         self.tabs_changed(window);
@@ -1345,6 +1363,11 @@ impl App {
                 bitmap,
             } => self.viewer.rendered(window, page, width_px, bitmap),
             Event::Thumbnail { page, bitmap } => self.viewer.thumbnail(page, bitmap),
+            Event::Cover {
+                path,
+                bitmap,
+                pages,
+            } => self.cover_rendered(window, path, bitmap, pages),
             Event::SearchHits { id, page, matches } => {
                 self.viewer.search_hits(window, id, page, matches)
             }
@@ -2037,6 +2060,167 @@ impl App {
         entries
     }
 
+    /// Shows a library in place of the home screen.
+    pub fn open_library(&mut self, window: &AppWindow, index: usize) {
+        if index >= self.libraries.items.len() {
+            return;
+        }
+        if self.active.is_some() {
+            self.go_home(window);
+        }
+        self.library_view = Some(index);
+        self.library_query.clear();
+        window.set_library_query("".into());
+        window.set_library_view(true);
+        self.update_library_view(window);
+        let missing: Vec<PathBuf> = self.libraries.items[index]
+            .documents
+            .iter()
+            .filter(|d| !self.covers.contains_key(*d) && d.is_file())
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            self.viewer.request_covers(missing);
+        }
+    }
+
+    fn close_library(&mut self, window: &AppWindow) {
+        if self.library_view.take().is_some() {
+            window.set_library_view(false);
+            self.library_books.clear();
+        }
+    }
+
+    /// A button or card on the library screen.
+    pub fn library_screen_action(&mut self, window: &AppWindow, action: &str, index: usize) {
+        let Some(library) = self.library_view else {
+            return;
+        };
+        match action {
+            "back" => self.close_library(window),
+            "open" => {
+                if let Some(doc) = self.library_books.get(index).cloned() {
+                    self.close_library(window);
+                    self.open_path(window, doc);
+                }
+            }
+            "add" => {
+                let picked = rfd::FileDialog::new()
+                    .set_title(tr("Add PDFs"))
+                    .add_filter("PDF", &["pdf"])
+                    .pick_files()
+                    .unwrap_or_default();
+                for doc in &picked {
+                    self.libraries.add(library, doc);
+                }
+                if !picked.is_empty() {
+                    self.libraries_changed(window);
+                    self.viewer.request_covers(picked);
+                }
+            }
+            "manage" => self.library_palette(window, library),
+            _ => {}
+        }
+    }
+
+    pub fn library_searched(&mut self, window: &AppWindow, query: &str) {
+        self.library_query = query.to_owned();
+        self.update_library_view(window);
+    }
+
+    /// A document's first page arrived: show it on its card.
+    fn cover_rendered(
+        &mut self,
+        window: &AppWindow,
+        path: PathBuf,
+        bitmap: PageBuffer,
+        pages: usize,
+    ) {
+        let shown = self.library_books.contains(&path);
+        self.covers
+            .insert(path, (slint::Image::from_rgb8(bitmap), pages));
+        if shown {
+            self.update_library_view(window);
+        }
+    }
+
+    fn update_library_view(&mut self, window: &AppWindow) {
+        let Some(library) = self.library_view.and_then(|i| self.libraries.items.get(i)) else {
+            self.close_library(window);
+            return;
+        };
+        let query = self.library_query.trim();
+        let mut books: Vec<(PathBuf, i32)> = library
+            .documents
+            .iter()
+            .filter_map(|d| palette::score(query, &file_name(d)).map(|s| (d.clone(), s)))
+            .collect();
+        if !query.is_empty() {
+            books.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
+        }
+        self.library_books = books.into_iter().map(|(d, _)| d).collect();
+
+        let cards: Vec<BookCard> = self
+            .library_books
+            .iter()
+            .map(|doc| {
+                let cover = self.covers.get(doc);
+                let page = self.viewer.store.recent_for(doc).map(|r| r.page);
+                let pages = cover.map(|c| c.1);
+                let (detail, progress) = match (page, pages) {
+                    (Some(page), Some(pages)) if pages > 0 => (
+                        trf("page {} of {}", &[&(page + 1), &pages]),
+                        Some((page + 1) as f32 / pages as f32),
+                    ),
+                    (Some(page), _) => (trf("page {}", &[&(page + 1)]), None),
+                    (None, _) if !doc.is_file() => (tr("File not found"), None),
+                    (None, _) => (tr("Not started"), None),
+                };
+                BookCard {
+                    title: file_name(doc).into(),
+                    detail: detail.into(),
+                    percent: progress
+                        .map(|p| format!("{}%", (p * 100.0).round()))
+                        .unwrap_or_default()
+                        .into(),
+                    progress: progress.unwrap_or(0.0),
+                    has_progress: progress.is_some(),
+                    has_cover: cover.is_some(),
+                    cover: cover.map(|c| c.0.clone()).unwrap_or_default(),
+                }
+            })
+            .collect();
+        // Continue with the library's most recently read document.
+        let hero = self
+            .viewer
+            .store
+            .recent
+            .iter()
+            .find_map(|r| self.library_books.iter().position(|d| *d == r.path))
+            .map_or(-1, ui_int);
+
+        let image = library
+            .image
+            .as_deref()
+            .and_then(|p| slint::Image::load_from_path(p).ok());
+        let study: u64 = library
+            .documents
+            .iter()
+            .map(|d| self.study.for_path(d))
+            .sum();
+        let mut summary = vec![document_count(library.documents.len())];
+        if self.config.study_timer && study >= 60 {
+            summary.push(trf("{} studied", &[&study::format_duration(study)]));
+        }
+        window.set_library_name(library.name.as_str().into());
+        window.set_library_icon(library.icon.as_str().into());
+        window.set_library_has_image(image.is_some());
+        window.set_library_image(image.unwrap_or_default());
+        window.set_library_summary(summary.join(" · ").into());
+        window.set_library_books(Rc::new(VecModel::from(cards)).into());
+        window.set_library_hero(hero);
+    }
+
     /// Laws matching a shortcut typed in the palette: "cf 37" (a shortcut
     /// and maybe an article) or "8112" (a saved law's number).
     fn law_entries(&self, query: &str) -> Vec<Entry> {
@@ -2160,8 +2344,9 @@ impl App {
         self.show_palette(window, entries, false);
     }
 
-    /// One library: its documents, and what can be done with it.
-    pub fn open_library(&mut self, window: &AppWindow, index: usize) {
+    /// One library in the palette: its documents, and what can be done
+    /// with it.
+    fn library_palette(&mut self, window: &AppWindow, index: usize) {
         let Some(library) = self.libraries.items.get(index) else {
             return;
         };
@@ -2308,6 +2493,9 @@ impl App {
             }
         }
         self.update_libraries(window);
+        if self.library_view.is_some() {
+            self.update_library_view(window);
+        }
     }
 
     fn update_libraries(&self, window: &AppWindow) {

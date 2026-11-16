@@ -252,6 +252,14 @@ fn main() -> Result<(), slint::PlatformError> {
         .switch_session(&win, index(i)));
     on!(window.on_prompt_accepted, |app, win, text| app
         .prompt_accepted(&win, &text));
+    on!(window.on_library_action, |app, win, action, i| app
+        .library_screen_action(
+            &win,
+            &action,
+            usize::try_from(i).unwrap_or(usize::MAX)
+        ));
+    on!(window.on_library_searched, |app, win, text| app
+        .library_searched(&win, &text));
     on!(window.on_open_library, |app, win, i| app.open_library(
         &win,
         usize::try_from(i).unwrap_or(usize::MAX)
