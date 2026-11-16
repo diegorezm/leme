@@ -29,9 +29,6 @@ jobs:
           }
           "version=$version" >> $env:GITHUB_OUTPUT
 
-      - name: Test
-        run: cargo test --release
-
       - name: Build
         run: cargo build --release
 

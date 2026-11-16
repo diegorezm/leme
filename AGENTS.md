@@ -40,7 +40,7 @@ The app is personal first, but code should be clean enough to open-source later.
 
 **Forbidden:** Electron, Tauri, WebViews, React/Svelte/any JS, browser engines. Performance and native feel are product requirements, not later optimizations.
 
-PDFium is loaded at runtime as `pdfium.dll` (`libpdfium.so` on Linux), first from the executable's directory, then from the system. `build.rs` downloads the prebuilt library for the target OS matching the `pdfium_8125` feature (`PDFIUM_RELEASE`) once into `target/pdfium/` and copies it next to the built exe. When bumping pdfium-render, keep the feature flag and `PDFIUM_RELEASE` in sync. Tests that need PDFium skip when it can't be loaded.
+PDFium is loaded at runtime as `pdfium.dll` (`libpdfium.so` on Linux), first from the executable's directory, then from the system. `crates/app/build.rs` downloads the prebuilt library for the target OS matching the `pdfium_8125` feature (`PDFIUM_RELEASE`) once into `target/pdfium/` and copies it next to the built exe. When bumping pdfium-render, keep the feature flag and `PDFIUM_RELEASE` in sync. Tests that need PDFium skip when it can't be loaded.
 
 ## 5. MVP features
 
@@ -96,12 +96,12 @@ Rejected by default:
 - The reading area dominates. The sidebar is optional and collapsible.
 - Overlays (search, jump-to-page, palette, note editor, settings) appear on demand and dismiss with `Esc`.
 - One accent color, used sparingly (focus, current page, search hits).
-- Design tokens live in `ui/theme.slint`; colors are set from the active theme file (`themes/*.toml`, `config.rs`). Never hard-code colors in components; add a theme key instead (and to every built-in theme).
+- Design tokens live in `crates/app/ui/theme.slint`; colors are set from the active theme file (`themes/*.toml`, `config.rs`). Never hard-code colors in components; add a theme key instead (and to every built-in theme).
 - Anti-clutter rule: before adding a visible control, ask whether a shortcut or an on-demand overlay would do. Default answer is yes.
 
 ## 8. Keyboard-first behavior
 
-Bindings are data, not code: `DEFAULT_KEYS` and `VIM_KEYS` in `src/keymap.rs`, overridable per action in `config.toml` under `[keys]`. Every `Action` has a stable kebab-case name (used in config) and a title (used in the palette and Settings). Multi-key sequences (`g g`) are supported.
+Bindings are data, not code: `DEFAULT_KEYS` and `VIM_KEYS` in `crates/domain/src/keymap.rs`, overridable per action in `config.toml` under `[keys]`. Every `Action` has a stable kebab-case name (used in config) and a title (used in the palette and Settings). Multi-key sequences (`g g`) are supported.
 
 Core defaults: `Ctrl+O` open, `Ctrl+K` palette, `Ctrl+F` search, `Ctrl+Shift+F` session search, `Ctrl+E` export, `Ctrl+L` mark section, `Ctrl+T` study timer, `1`–`5` highlight colors, `Ctrl+P` go to page, `Ctrl++/-/0` zoom, `Ctrl+1/2` fit width/page, `Ctrl+B` sidebar, `Ctrl+.` focus mode, `F11` fullscreen, `Ctrl+Tab`/`Ctrl+W` tabs, arrows/PgUp/PgDn/Home/End navigation, `Ctrl+C/H/N` copy/highlight/note, `Esc` close/clear.
 
@@ -127,53 +127,69 @@ Core defaults: `Ctrl+O` open, `Ctrl+K` palette, `Ctrl+F` search, `Ctrl+Shift+F` 
 
 **Slint is presentation only. Rust owns state and logic.**
 
+A Cargo workspace. The crates depend one way: `domain` ← `web` ← `pdf` ← `app`.
+
 ```text
-src/
-  main.rs         // entry: build UI, wire callbacks to App, route worker events
-  app.rs          // tabs + session, keys -> actions, palette, settings, themes, overlays
-  viewer.rs       // the open document: layout, render cache, search, selection, annotations
-  pdf.rs          // PDFium worker thread: open, render, search, select text (no Slint types)
-  recover.rs      // text a PDF draws but maps to blanks, read from glyph IDs and fonts
-  layout.rs       // pure page-strip geometry, zoom modes
-  cache.rs        // pure page cache bounded by a memory budget
-  keymap.rs       // actions, key chords and sequences, default + vim bindings
-  palette.rs      // pure fuzzy matching for the command palette
-  search.rs       // pure search results and match navigation
-  annotations.rs  // annotation model and section progress, TOML storage, Markdown export
-  export.rs       // pure exports: section summary, Anki TSV, CSV
-  study.rs        // study time from activity, per day and document (study.txt)
-  config.rs       // config.toml + theme files
-  instance.rs     // single instance: later launches send their files to the running Leme
-  i18n.rs         // interface language: tr()/trf() for Rust text, from the same .po Slint bundles
-  store.rs        // reading history and last session (state.txt)
-  nav.rs          // pure page navigation and page-number parsing
-  update.rs       // update check and install from GitHub releases
-  library.rs      // libraries: named document collections shared by sessions (libraries.toml)
-  web.rs          // web pages saved as documents: fetch through curl, where they're kept
-  html.rs         // pure: readable text (headings, paragraphs, styles) from an HTML page
-  typeset.rs      // typesets a page's text into a PDF with PDFium's built-in fonts
-ui/
-  app.slint       // main window: header, tabs, reader, overlays
-  reader.slint    // page strip, thumbnails sidebar, start screen, tab bar
-  palette.slint   // command palette
-  settings.slint  // settings sheet
-  widgets.slint   // small shared components (buttons, toggle, select, panel)
-  structs.slint   // data passed from Rust
-  theme.slint     // design tokens (global Theme, colors set from Rust)
-themes/           // built-in themes, embedded at compile time
-translations/     // pt-BR/LC_MESSAGES/leme.po: Portuguese for both .slint (@tr) and Rust (i18n::tr)
+crates/
+  domain/           // pure logic: no Slint, no PDFium, no network
+    layout.rs       // page-strip geometry, zoom modes
+    cache.rs        // page cache bounded by a memory budget
+    keymap.rs       // actions, key chords and sequences, default + vim bindings (Slint's key codes as chars)
+    palette.rs      // fuzzy matching and entries of the command palette
+    search.rs       // search results and match navigation
+    nav.rs          // page navigation and page-number parsing
+    geometry.rs     // NormRect, shared by annotations and the PDF worker
+    annotations.rs  // annotation model and section progress, TOML storage
+    export.rs       // exports: section summary, Anki TSV, CSV
+    study.rs        // study time from activity, per day and document (study.txt)
+    config.rs       // config.toml + theme files
+    store.rs        // reading history and last session (state.txt)
+    library.rs      // libraries (libraries.toml) and law shortcuts ("cf 37")
+    i18n.rs         // tr()/trf() for Rust text, from the same .po Slint bundles
+  web/              // the network side, through the system curl
+    lib.rs          // web pages saved as documents: fetch, where they're kept
+    html.rs         // readable text (headings, paragraphs, styles, links) from an HTML page
+    update.rs       // update check and install from GitHub releases
+  pdf/              // PDFium (and lopdf), on a worker thread
+    lib.rs          // requests, events, Worker
+    worker.rs       // the worker loop: open documents, queues, one unit of work at a time
+    document.rs     // open, outline, links, page labels
+    render.rs       // pages to pixels, recoloring
+    text.rs         // character boxes, selection
+    find.rs         // search, in the document and across documents
+    recover.rs      // text a PDF draws but maps to blanks, read from glyph IDs and fonts
+    typeset.rs      // typesets a web page's text into a PDF with PDFium's built-in fonts
+  app/              // the `leme` binary: window, Slint, single instance
+    build.rs        // compiles ui/, bundles translations, provides PDFium, embeds the icon
+    src/main.rs     // entry: build UI, wire callbacks to App, route worker events
+    src/app/        // App: tabs and sessions, keys, palette, settings, libraries, pages, updates
+    src/viewer/     // Viewer: the open document's layout, rendering, side panel, search, marks
+    src/instance.rs // single instance: later launches send their files to the running Leme
+    src/titlebar.rs // native title bar colors on Windows
+    ui/
+      app.slint       // main window: header, tabs, reader, overlays
+      reader.slint    // page strip, sidebar, start screen, library screen, tab bar
+      palette.slint   // command palette
+      settings.slint  // settings sheet
+      widgets.slint   // small shared components (buttons, toggle, select, scrollbar)
+      structs.slint   // data passed from Rust
+      theme.slint     // design tokens (global Theme, colors set from Rust)
+themes/             // built-in themes, embedded at compile time
+translations/       // pt-BR/LC_MESSAGES/leme.po: Portuguese for both .slint (@tr) and Rust (i18n::tr)
+assets/             // icon
 ```
 
 The PDF worker processes one small unit at a time (text selection > page render > search one page > thumbnail) and checks for new requests between units, so new requests replace stale work. Tabs share one live document view. The worker keeps the last few documents open and the viewer keeps their exact scroll position and nearby rendered pages, so switching between recent tabs is instant; older tabs reopen from disk, which keeps memory bounded no matter how many tabs are open.
 
 Rules:
 - `.slint` files expose properties and callbacks; they contain no business logic beyond trivial layout/visibility bindings.
-- `pdf`, `recover`, `typeset`, `html`, `web`, `library`, `layout`, `cache`, `nav`, `keymap`, `palette`, `search`, `annotations`, `export`, `study`, `config`, `store` must not depend on Slint UI types, so they are unit-testable (`keymap` only uses Slint's key constants). Only `main.rs`, `app.rs`, and `viewer.rs` touch Slint types.
+- Only the `app` crate depends on Slint; `domain`, `web`, and `pdf` can't, so the compiler keeps them unit-testable. `domain` also has no PDFium and no network; network access lives in `web` only. A test in `app` checks `domain::keymap::key` against Slint's key codes.
+- Inside `app`, `App` and `Viewer` are split by topic into files of one `impl` each; methods other files call are `pub(super)`.
 - State flows one way: UI callback → `Action` → controller updates state → controller pushes properties to UI.
 - Paths: everything user-owned lives in `%APPDATA%\leme` (`config.toml`, `themes\`, `annotations\`, `pages\`, `libraries.toml`, `state.txt`, `study.txt`); caches go in `%LOCALAPPDATA%\leme`. On Linux: `$XDG_CONFIG_HOME/leme` (`~/.config/leme`) and `$XDG_CACHE_HOME/leme` (`~/.cache/leme`); see `config::data_dir`/`cache_dir`. Platform code is behind `#[cfg(windows)]`. Never write next to the executable, in the document folder, or into the PDF.
 - User files must never block startup: parse leniently, fall back to defaults, and report problems in Settings.
 - Every user-visible text is English in the source and translated: `@tr("…")` in `.slint`, `i18n::tr` / `trf` in Rust (`{}` placeholders, like `@tr`). Add each new text to `translations/pt-BR/LC_MESSAGES/leme.po`; a test checks placeholders match. Brazilian Portuguese is the default language.
-- Grow the module tree when needed; do not create empty modules ahead of time.
+- Grow the module tree when needed; do not create empty modules or crates ahead of time.
 
 ## 11. Coding standards
 
@@ -184,9 +200,11 @@ Rules:
 - `cargo fmt` clean; `cargo clippy --all-targets -- -D warnings` clean.
 
 **Testing**
-- Unit-test meaningful logic: cache eviction, search result handling, settings parsing/defaults, zoom/fit math, page navigation bounds, keymap.
-- Keep logic pure so tests need no window or PDFium. Integration tests that require PDFium should skip gracefully when the library is missing.
+- Test what can really break and would hurt: user files that must round-trip or load leniently (config, annotations, state, libraries, saved pages), default keybindings parsing, translations complete, page layout and cache bounds, selection and search, memory caps on renders, the HTML reader on real-world markup (Planalto), the typesetter's line breaking, update checksums.
+- Don't test the trivial: formatting helpers, getters, enum-to-string tables, one-line wrappers, or what another test already covers. A test earns its place like a feature does; fewer, sharper tests keep CI fast.
+- Keep logic pure so tests need no window or PDFium. Tests that need PDFium skip gracefully when the library is missing.
 - Small fixture PDFs go in `tests/fixtures/` (only freely licensed, tiny files).
+- CI runs `cargo test -p domain -p web -p pdf` with dependencies unoptimized; the `app` crate is only linted there (its one test checks Slint's key codes; run it locally with `cargo test`). Releases don't rerun the tests.
 
 **Dependency policy**
 - Every new dependency needs a clear reason stated in the commit message. Prefer std.
@@ -207,7 +225,7 @@ Prerequisites: stable Rust via `rustup` with the MSVC toolchain (`x86_64-pc-wind
 
 ```sh
 cargo run                                   # debug build and launch
-cargo test                                  # run tests
+cargo test                                  # run tests (every crate; -p domain for one)
 cargo fmt --all                             # format
 cargo clippy --all-targets -- -D warnings   # lint
 cargo build --release                       # optimized build -> target/release/leme
@@ -234,7 +252,7 @@ A change is done when:
 - [ ] `cargo build` and `cargo build --release` succeed.
 - [ ] `cargo fmt --all -- --check` passes.
 - [ ] `cargo clippy --all-targets -- -D warnings` passes.
-- [ ] `cargo test` passes; new logic has tests.
+- [ ] `cargo test` passes; new logic that can really break has a test (see Testing).
 - [ ] No `unwrap`/`expect` in production paths; no UI-thread blocking.
 - [ ] New user-facing actions have keyboard shortcuts.
 - [ ] Docs (README / DOCS.md / AGENTS.md) updated if behavior, setup, or principles changed.

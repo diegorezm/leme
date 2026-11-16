@@ -1,0 +1,17 @@
+[package]
+name = "pdf"
+description = "Leme's PDFium worker: opening, rendering, search, selection, recovered text, and typesetting web pages."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+domain.workspace = true
+web.workspace = true
+# PDF rendering via PDFium; image crate integration not needed.
+pdfium-render = { version = "0.9.5", default-features = false, features = ["pdfium_8125", "thread_safe"] }
+# Reads glyph IDs for recovered text; writes bookmarks and links PDFium can't.
+lopdf = { version = "0.47.0", default-features = false }
+ttf-parser = { version = "0.25", default-features = false, features = ["std", "opentype-layout", "glyph-names"] }

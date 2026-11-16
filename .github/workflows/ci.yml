@@ -25,5 +25,10 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
+      # Lint already compiles the app; tests cover the crates with logic,
+      # without rebuilding Slint, and with dependencies unoptimized (the
+      # dev profile optimizes them for smooth `cargo run`, which tests
+      # don't need).
       - name: Test
-        run: cargo test
+        shell: bash
+        run: cargo test -p domain -p web -p pdf --config 'profile.dev.package."*".opt-level=0'

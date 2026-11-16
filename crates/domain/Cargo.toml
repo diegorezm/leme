@@ -1,0 +1,12 @@
+[package]
+name = "domain"
+description = "Leme's pure logic: layout, navigation, keys, annotations, settings, libraries. No UI, no PDFium."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true

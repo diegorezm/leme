@@ -1,0 +1,11 @@
+[package]
+name = "web"
+description = "Leme's network side: web pages saved as documents, their HTML, and the update check. Requests go through the system curl."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+domain.workspace = true
