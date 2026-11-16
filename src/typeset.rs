@@ -18,6 +18,8 @@ const LEADING: f32 = 1.4;
 const INDENT: f32 = 14.0;
 const INK: (u8, u8, u8) = (26, 26, 26);
 const MUTED: (u8, u8, u8) = (110, 110, 110);
+/// Link text: a dark blue that still reads as text on paper and inverted.
+const LINK: (u8, u8, u8) = (30, 78, 150);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Face {
@@ -39,6 +41,27 @@ impl Face {
     }
 }
 
+/// A run of text in one style, to break into lines.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Span {
+    pub text: String,
+    pub face: Face,
+    pub strike: bool,
+    /// An address, or `#id` within the document.
+    pub link: Option<String>,
+}
+
+impl Span {
+    pub fn plain(text: impl Into<String>, face: Face) -> Self {
+        Span {
+            text: text.into(),
+            face,
+            strike: false,
+            link: None,
+        }
+    }
+}
+
 /// A word placed on a line: x offset from the line start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Piece {
@@ -47,13 +70,14 @@ pub struct Piece {
     pub face: Face,
     pub strike: bool,
     pub width: f32,
+    pub link: Option<String>,
 }
 
 /// Breaks runs into lines no wider than `width`, greedily, measuring
 /// with `measure(text, face)` at size 1. Words wider than a line are
 /// split. Pure, so it is tested without PDFium.
 pub fn break_lines(
-    runs: &[(String, Face, bool)],
+    runs: &[Span],
     size: f32,
     width: f32,
     measure: &mut dyn FnMut(&str, Face) -> f32,
@@ -62,7 +86,8 @@ pub fn break_lines(
     let mut line: Vec<Piece> = Vec::new();
     let mut x = 0.0;
     let mut pending_space = false;
-    for (text, face, strike) in runs {
+    for span in runs {
+        let (text, face) = (&span.text, &span.face);
         let starts_with_space = text.starts_with(char::is_whitespace);
         if starts_with_space {
             pending_space = true;
@@ -89,17 +114,17 @@ pub fn break_lines(
                     if measure(&part, *face) * size > width - x && part.chars().count() > 1 {
                         part.pop();
                         let pw = measure(&part, *face) * size;
-                        line.push(piece(x, &part, *face, *strike, pw));
+                        line.push(piece(x, &part, span, pw));
                         lines.push(std::mem::take(&mut line));
                         x = 0.0;
                         part = c.to_string();
                     }
                 }
                 let pw = measure(&part, *face) * size;
-                line.push(piece(x, &part, *face, *strike, pw));
+                line.push(piece(x, &part, span, pw));
                 x += pw;
             } else {
-                line.push(piece(x, word, *face, *strike, w));
+                line.push(piece(x, word, span, w));
                 x += w;
             }
             pending_space = words.peek().is_some();
@@ -113,13 +138,14 @@ pub fn break_lines(
     lines
 }
 
-fn piece(x: f32, text: &str, face: Face, strike: bool, width: f32) -> Piece {
+fn piece(x: f32, text: &str, span: &Span, width: f32) -> Piece {
     Piece {
         x,
         text: text.to_owned(),
-        face,
-        strike,
+        face: span.face,
+        strike: span.strike,
         width,
+        link: span.link.clone(),
     }
 }
 
@@ -129,7 +155,7 @@ fn merge(line: Vec<Piece>, space: &mut dyn FnMut(Face) -> f32) -> Vec<Piece> {
     let mut out: Vec<Piece> = Vec::new();
     for p in line {
         match out.last_mut() {
-            Some(last) if last.face == p.face && last.strike == p.strike => {
+            Some(last) if last.face == p.face && last.strike == p.strike && last.link == p.link => {
                 let gap = p.x - (last.x + last.width);
                 let spaces = if gap > 0.01 {
                     (gap / space(p.face)).round().max(1.0) as usize
@@ -263,6 +289,8 @@ struct Line {
     gap: f32,
     /// An outline entry starts here: level and title.
     mark: Option<(u8, String)>,
+    /// Ids that `#id` links point to.
+    anchors: Vec<String>,
 }
 
 /// Writes `article` as a PDF at `out`. `source` is shown under the title.
@@ -289,7 +317,7 @@ pub fn write(
     let text_width = PAGE_W - 2.0 * MARGIN;
 
     let mut lines: Vec<Line> = Vec::new();
-    let push_block = |runs: Vec<(String, Face, bool)>,
+    let push_block = |runs: Vec<Span>,
                       st: &Style,
                       color,
                       first_gap: f32,
@@ -308,6 +336,7 @@ pub fn write(
                 color,
                 gap: if i == 0 { first_gap } else { 0.0 },
                 mark: None,
+                anchors: Vec::new(),
             });
         }
     };
@@ -326,7 +355,7 @@ pub fn write(
         .is_some_and(|b| b.text() == article.title);
     if !article.title.is_empty() && !titled {
         push_block(
-            vec![(article.title.clone(), Face::Bold, false)],
+            vec![Span::plain(article.title.clone(), Face::Bold)],
             &title_style,
             INK,
             0.0,
@@ -340,7 +369,7 @@ pub fn write(
     };
     // The address goes under the title, which is either the page's
     // title or its first block.
-    let source_line = vec![(source.to_owned(), Face::Regular, false)];
+    let source_line = vec![Span::plain(source, Face::Regular)];
     if !titled {
         push_block(
             source_line.clone(),
@@ -374,18 +403,23 @@ pub fn write(
         let first = lines.len();
         if block.kind == Kind::ListItem {
             let mut runs = runs;
-            runs.insert(0, ("• ".to_owned(), Face::Regular, false));
+            runs.insert(0, Span::plain("• ", Face::Regular));
             push_block(runs, &st, INK, gap, &mut lines, &mut metrics);
         } else {
             push_block(runs, &st, INK, gap, &mut lines, &mut metrics);
         }
-        if let (Kind::Heading(level), Some(line)) = (block.kind, lines.get_mut(first)) {
-            line.mark = Some((level, block.text()));
+        if let Some(line) = lines.get_mut(first) {
+            if let Kind::Heading(level) = block.kind {
+                line.mark = Some((level, block.text()));
+            }
+            line.anchors = block.anchors.clone();
         }
     }
 
     // Lay lines onto pages.
     let mut marks: Vec<Mark> = Vec::new();
+    let mut links: Vec<LinkBox> = Vec::new();
+    let mut anchors: HashMap<String, (usize, f32)> = HashMap::new();
     let mut pages = 0;
     let mut y = 0.0;
     let mut page: Option<PdfPage> = None;
@@ -431,10 +465,21 @@ pub fn write(
                 top: y + height,
             });
         }
+        for id in line.anchors {
+            anchors.entry(id).or_insert((pages - 1, y + height));
+        }
         let baseline = y + line.size * (LEADING - 1.0) / 2.0 + line.size * 0.2;
-        let color = PdfColor::new(line.color.0, line.color.1, line.color.2, 255);
         for p in &line.pieces {
             let x = MARGIN + line.indent + p.x;
+            let ink = if p.link.is_some() { LINK } else { line.color };
+            let color = PdfColor::new(ink.0, ink.1, ink.2, 255);
+            if let Some(target) = &p.link {
+                links.push(LinkBox {
+                    page: pages - 1,
+                    rect: [x, y, x + p.width, y + height],
+                    target: target.clone(),
+                });
+            }
             let mut object = page.objects_mut().create_text_object(
                 PdfPoints::new(x),
                 PdfPoints::new(baseline),
@@ -469,10 +514,85 @@ pub fn write(
     }
     doc.save_to_file(out)?;
     drop(doc);
-    // PDFium can't write bookmarks; lopdf adds them to the saved file. A
-    // failure leaves the document without an outline, still readable.
-    let _ = add_outline(out, &marks);
+    // PDFium can't write bookmarks or links; lopdf adds them to the saved
+    // file. A failure leaves the document without them, still readable.
+    let _ = add_navigation(out, &marks, &links, &anchors);
     Ok(pages)
+}
+
+/// A link's clickable area: page, [x1, y1, x2, y2] in points, target.
+struct LinkBox {
+    page: usize,
+    rect: [f32; 4],
+    target: String,
+}
+
+/// Writes link annotations: addresses open as URIs, `#id` links go to
+/// where that id is in the document.
+fn add_links(
+    doc: &mut lopdf::Document,
+    pages: &[lopdf::ObjectId],
+    links: &[LinkBox],
+    anchors: &HashMap<String, (usize, f32)>,
+) -> Result<(), lopdf::Error> {
+    use lopdf::{Dictionary, Object, StringFormat};
+    let mut per_page: HashMap<usize, Vec<Object>> = HashMap::new();
+    for link in links {
+        let mut annot = Dictionary::new();
+        annot.set("Type", "Annot");
+        annot.set("Subtype", "Link");
+        annot.set(
+            "Rect",
+            link.rect
+                .iter()
+                .map(|v| Object::Real(*v))
+                .collect::<Vec<_>>(),
+        );
+        annot.set(
+            "Border",
+            vec![Object::Integer(0), Object::Integer(0), Object::Integer(0)],
+        );
+        if let Some(id) = link.target.strip_prefix('#') {
+            let Some(&(page, top)) = anchors.get(id) else {
+                continue;
+            };
+            let Some(&page) = pages.get(page) else {
+                continue;
+            };
+            annot.set(
+                "Dest",
+                vec![
+                    Object::Reference(page),
+                    "XYZ".into(),
+                    Object::Null,
+                    Object::Real(top),
+                    Object::Null,
+                ],
+            );
+        } else {
+            let mut action = Dictionary::new();
+            action.set("S", "URI");
+            action.set(
+                "URI",
+                Object::String(link.target.clone().into_bytes(), StringFormat::Literal),
+            );
+            annot.set("A", action);
+        }
+        let id = doc.add_object(annot);
+        per_page
+            .entry(link.page)
+            .or_default()
+            .push(Object::Reference(id));
+    }
+    for (page, annots) in per_page {
+        let Some(&page_id) = pages.get(page) else {
+            continue;
+        };
+        if let Ok(dict) = doc.get_object_mut(page_id).and_then(Object::as_dict_mut) {
+            dict.set("Annots", annots);
+        }
+    }
+    Ok(())
 }
 
 /// A heading's place, for the outline.
@@ -486,13 +606,23 @@ struct Mark {
 
 /// Writes `marks` into the PDF at `path` as its outline (bookmarks),
 /// nested by level.
-fn add_outline(path: &Path, marks: &[Mark]) -> Result<(), lopdf::Error> {
+fn add_navigation(
+    path: &Path,
+    marks: &[Mark],
+    links: &[LinkBox],
+    anchors: &HashMap<String, (usize, f32)>,
+) -> Result<(), lopdf::Error> {
     use lopdf::{Dictionary, Document, Object, ObjectId, StringFormat};
-    if marks.is_empty() {
+    if marks.is_empty() && links.is_empty() {
         return Ok(());
     }
     let mut doc = Document::load(path)?;
     let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    add_links(&mut doc, &pages, links, anchors)?;
+    if marks.is_empty() {
+        doc.save(path)?;
+        return Ok(());
+    }
     let root_id = doc.new_object_id();
     let ids: Vec<ObjectId> = marks.iter().map(|_| doc.new_object_id()).collect();
 
@@ -568,7 +698,7 @@ fn add_outline(path: &Path, marks: &[Mark]) -> Result<(), lopdf::Error> {
     Ok(())
 }
 
-fn block_runs(block: &Block, st: &Style) -> Vec<(String, Face, bool)> {
+fn block_runs(block: &Block, st: &Style) -> Vec<Span> {
     block
         .runs
         .iter()
@@ -585,7 +715,12 @@ fn block_runs(block: &Block, st: &Style) -> Vec<(String, Face, bool)> {
                 }
                 face
             };
-            (r.text.clone(), face, r.strike)
+            Span {
+                text: r.text.clone(),
+                face,
+                strike: r.strike,
+                link: r.link.clone(),
+            }
         })
         .collect()
 }
@@ -613,7 +748,7 @@ mod tests {
     #[test]
     fn breaks_greedily() {
         // Size 2: each character is 1pt wide, a space 1pt.
-        let runs = vec![("aaa bbb ccc dddd".to_owned(), Face::Regular, false)];
+        let runs = vec![Span::plain("aaa bbb ccc dddd", Face::Regular)];
         let lines = break_lines(&runs, 2.0, 8.0, &mut fixed);
         assert_eq!(texts(&lines), ["aaa bbb", "ccc dddd"]);
         assert_eq!(lines[0][1].x, 4.0);
@@ -622,9 +757,12 @@ mod tests {
     #[test]
     fn styles_join_without_inventing_spaces() {
         let runs = vec![
-            ("Art. ".to_owned(), Face::Bold, false),
-            ("5".to_owned(), Face::Regular, false),
-            ("º caput".to_owned(), Face::Regular, true),
+            Span::plain("Art. ", Face::Bold),
+            Span::plain("5", Face::Regular),
+            Span {
+                strike: true,
+                ..Span::plain("º caput", Face::Regular)
+            },
         ];
         let lines = break_lines(&runs, 2.0, 100.0, &mut fixed);
         let line = &lines[0];
@@ -637,7 +775,7 @@ mod tests {
 
     #[test]
     fn splits_words_longer_than_a_line() {
-        let runs = vec![("abcdefghij".to_owned(), Face::Regular, false)];
+        let runs = vec![Span::plain("abcdefghij", Face::Regular)];
         let lines = break_lines(&runs, 2.0, 4.0, &mut fixed);
         assert_eq!(texts(&lines), ["abcd", "efgh", "ij"]);
     }
@@ -645,8 +783,8 @@ mod tests {
     #[test]
     fn merges_same_style_pieces() {
         let runs = vec![
-            ("one two".to_owned(), Face::Regular, false),
-            (" three".to_owned(), Face::Bold, false),
+            Span::plain("one two", Face::Regular),
+            Span::plain(" three", Face::Bold),
         ];
         let lines = break_lines(&runs, 2.0, 100.0, &mut fixed);
         let merged = merge(lines[0].clone(), &mut |_| 1.0);

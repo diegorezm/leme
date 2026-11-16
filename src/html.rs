@@ -13,6 +13,8 @@ pub struct Run {
     pub italic: bool,
     /// Struck through: revoked text in Brazilian law pages.
     pub strike: bool,
+    /// Where it links to: an address, or `#id` within the page.
+    pub link: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +32,8 @@ pub enum Kind {
 pub struct Block {
     pub kind: Kind,
     pub runs: Vec<Run>,
+    /// Ids (`id`, `<a name>`) in or just before it, for `#id` links.
+    pub anchors: Vec<String>,
 }
 
 impl Block {
@@ -187,6 +191,11 @@ struct Builder {
     italic: usize,
     strike: usize,
     pre: usize,
+    /// The open link's href, and how many `<a>` are open.
+    link: Option<String>,
+    links: usize,
+    /// Ids seen since the last block, for the next block with text.
+    anchors: Vec<String>,
 }
 
 impl Builder {
@@ -197,8 +206,14 @@ impl Builder {
             return;
         }
         let (bold, italic, strike) = (self.bold > 0, self.italic > 0, self.strike > 0);
+        let link = self.link.clone().filter(|_| self.links > 0);
         match self.runs.last_mut() {
-            Some(run) if run.bold == bold && run.italic == italic && run.strike == strike => {
+            Some(run)
+                if run.bold == bold
+                    && run.italic == italic
+                    && run.strike == strike
+                    && run.link == link =>
+            {
                 run.text.push_str(&text)
             }
             _ => self.runs.push(Run {
@@ -206,6 +221,7 @@ impl Builder {
                 bold,
                 italic,
                 strike,
+                link,
             }),
         }
     }
@@ -224,7 +240,12 @@ impl Builder {
         if let Some(first) = runs.first_mut() {
             first.text = first.text.trim_start().to_owned();
         }
-        self.blocks.push(Block { kind, runs });
+        let anchors = std::mem::take(&mut self.anchors);
+        self.blocks.push(Block {
+            kind,
+            runs,
+            anchors,
+        });
     }
 }
 
@@ -318,7 +339,18 @@ pub fn extract(html: &str) -> Article {
                     }
                     continue;
                 }
+                if let Some(id) = attr(attrs, "id")
+                    .or_else(|| (name == "a").then(|| attr(attrs, "name")).flatten())
+                {
+                    b.anchors.push(id);
+                }
                 match name.as_str() {
+                    "a" => {
+                        if let Some(href) = attr(attrs, "href") {
+                            b.link = Some(href);
+                            b.links = 1;
+                        }
+                    }
                     "b" | "strong" => b.bold += 1,
                     "i" | "em" | "cite" => b.italic += 1,
                     "s" | "strike" | "del" => b.strike += 1,
@@ -347,6 +379,7 @@ pub fn extract(html: &str) -> Article {
                     continue;
                 }
                 match name.as_str() {
+                    "a" => b.links = 0,
                     "b" | "strong" => b.bold = b.bold.saturating_sub(1),
                     "i" | "em" | "cite" => b.italic = b.italic.saturating_sub(1),
                     "s" | "strike" | "del" => b.strike = b.strike.saturating_sub(1),
@@ -398,6 +431,92 @@ fn page_title(tokens: &[Token]) -> String {
         })
         .collect();
     collapse(&entities(&text)).trim().to_owned()
+}
+
+/// The value of attribute `name` in a tag's raw attributes, entities
+/// decoded.
+fn attr(attrs: &str, name: &str) -> Option<String> {
+    let lower = attrs.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut from = 0;
+    while let Some(i) = lower[from..].find(name).map(|i| i + from) {
+        from = i + name.len();
+        let boundary = i == 0 || !matches!(bytes[i - 1], b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_');
+        let rest = attrs[from..].trim_start();
+        let Some(value) = rest.strip_prefix('=').filter(|_| boundary) else {
+            continue;
+        };
+        let value = value.trim_start();
+        let raw = match value.chars().next() {
+            Some(q @ ('"' | '\'')) => value[1..].split(q).next().unwrap_or_default(),
+            _ => value
+                .split(|c: char| c.is_whitespace() || c == '>')
+                .next()
+                .unwrap_or_default(),
+        };
+        return Some(entities(raw.trim()));
+    }
+    None
+}
+
+/// `href` as an absolute address from the page at `base`, or `#id` when
+/// it points within that page. `None` for scripts.
+pub fn resolve(base: &str, href: &str) -> Option<String> {
+    let href = href.trim();
+    let lower = href.to_ascii_lowercase();
+    if href.is_empty() || lower.starts_with("javascript:") || lower.starts_with("data:") {
+        return None;
+    }
+    if href.starts_with('#') {
+        return (href.len() > 1).then(|| href.to_owned());
+    }
+    if lower.starts_with("mailto:") {
+        return Some(href.to_owned());
+    }
+    let base = base.split('#').next().unwrap_or(base);
+    let (scheme, rest) = base.split_once("://")?;
+    let host = rest.split(['/', '?']).next().unwrap_or(rest);
+    let absolute = if lower.starts_with("http://") || lower.starts_with("https://") {
+        href.to_owned()
+    } else if let Some(path) = href.strip_prefix("//") {
+        format!("{scheme}://{path}")
+    } else if href.starts_with('/') {
+        format!("{scheme}://{host}{href}")
+    } else {
+        let path = rest[host.len()..].split('?').next().unwrap_or("");
+        let dir = &path[..path.rfind('/').map_or(0, |i| i + 1)];
+        let mut parts: Vec<&str> = dir.split('/').filter(|p| !p.is_empty()).collect();
+        let (target, tail) = match href.find(['?', '#']) {
+            Some(i) => href.split_at(i),
+            None => (href, ""),
+        };
+        for part in target.split('/') {
+            match part {
+                ".." => {
+                    parts.pop();
+                }
+                "." | "" => {}
+                p => parts.push(p),
+            }
+        }
+        let slash = if target.ends_with('/') { "/" } else { "" };
+        format!("{scheme}://{host}/{}{slash}{tail}", parts.join("/"))
+    };
+    // A link to this same page, at an anchor.
+    match absolute.split_once('#') {
+        Some((page, id)) if same_page(page, base) && !id.is_empty() => Some(format!("#{id}")),
+        _ => Some(absolute),
+    }
+}
+
+fn same_page(a: &str, b: &str) -> bool {
+    let strip = |u: &str| {
+        u.trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_start_matches("www.")
+            .to_ascii_lowercase()
+    };
+    strip(a) == strip(b)
 }
 
 // ----- Entities -------------------------------------------------------------
@@ -499,6 +618,9 @@ fn entities(text: &str) -> String {
 /// from. Struck-through text (revoked law) is dropped unless `revoked`.
 pub fn read_page(bytes: &[u8], url: &str, revoked: bool) -> Article {
     let mut article = extract(&decode(bytes));
+    for run in article.blocks.iter_mut().flat_map(|b| &mut b.runs) {
+        run.link = run.link.take().and_then(|href| resolve(url, &href));
+    }
     if is_planalto(url) {
         planalto(&mut article);
     }
@@ -508,7 +630,7 @@ pub fn read_page(bytes: &[u8], url: &str, revoked: bool) -> Article {
     article
 }
 
-fn is_planalto(url: &str) -> bool {
+pub fn is_planalto(url: &str) -> bool {
     url.trim_start_matches("https://")
         .split(['/', '?', '#'])
         .next()
@@ -580,10 +702,12 @@ fn planalto(article: &mut Article) {
                 bold: true,
                 ..Run::default()
             }],
+            anchors: Vec::new(),
         });
     }
     let mut header = start.is_some();
     let mut pending: Option<(u8, String)> = None;
+    let mut pending_anchors: Vec<String> = Vec::new();
     for block in blocks {
         let text = block.text();
         if header {
@@ -609,7 +733,11 @@ fn planalto(article: &mut Article) {
             } else {
                 name
             };
-            article.blocks.push(heading_block(level, heading));
+            let mut anchors = std::mem::take(&mut pending_anchors);
+            if is_name {
+                anchors.extend(block.anchors.iter().cloned());
+            }
+            article.blocks.push(heading_block(level, heading, anchors));
             if is_name {
                 continue;
             }
@@ -619,18 +747,21 @@ fn planalto(article: &mut Article) {
                 article.blocks.push(block);
             } else {
                 pending = Some((level, text));
+                pending_anchors = block.anchors;
             }
             continue;
         }
         article.blocks.push(block);
     }
     if let Some((level, name)) = pending {
-        article.blocks.push(heading_block(level, name));
+        article
+            .blocks
+            .push(heading_block(level, name, pending_anchors));
     }
 }
 
 /// Division headings sit below the law's title (level 1).
-fn heading_block(level: u8, text: String) -> Block {
+fn heading_block(level: u8, text: String, anchors: Vec<String>) -> Block {
     Block {
         kind: Kind::Heading((level + 1).min(6)),
         runs: vec![Run {
@@ -638,6 +769,7 @@ fn heading_block(level: u8, text: String) -> Block {
             bold: true,
             ..Run::default()
         }],
+        anchors,
     }
 }
 
@@ -768,5 +900,78 @@ mod tests {
         // Other sites keep their letterhead.
         let other = read_page(page.as_bytes(), "https://example.com/x", false);
         assert_eq!(other.blocks[0].text(), "Presidência da República");
+    }
+
+    #[test]
+    fn attributes() {
+        assert_eq!(
+            attr(r#" href="a.htm" id='x'"#, "href").as_deref(),
+            Some("a.htm")
+        );
+        assert_eq!(attr(" id='x' NAME=art5", "name").as_deref(), Some("art5"));
+        assert_eq!(
+            attr(r#" data-href="no" href="yes""#, "href").as_deref(),
+            Some("yes")
+        );
+        assert_eq!(
+            attr(r#" href="a?b=1&amp;c=2""#, "href").as_deref(),
+            Some("a?b=1&c=2")
+        );
+        assert_eq!(attr(" class=x", "href"), None);
+    }
+
+    #[test]
+    fn resolves_links() {
+        let base = "https://www.planalto.gov.br/ccivil_03/constituicao/constituicao.htm";
+        assert_eq!(resolve(base, "#art5").as_deref(), Some("#art5"));
+        assert_eq!(
+            resolve(base, "../leis/l8112cons.htm").as_deref(),
+            Some("https://www.planalto.gov.br/ccivil_03/leis/l8112cons.htm")
+        );
+        assert_eq!(
+            resolve(base, "/ccivil_03/leis/L9784.htm").as_deref(),
+            Some("https://www.planalto.gov.br/ccivil_03/leis/L9784.htm")
+        );
+        assert_eq!(
+            resolve(
+                base,
+                "http://www.planalto.gov.br/ccivil_03/constituicao/constituicao.htm#art37"
+            )
+            .as_deref(),
+            Some("#art37")
+        );
+        assert_eq!(
+            resolve(base, "//example.com/a").as_deref(),
+            Some("https://example.com/a")
+        );
+        assert_eq!(resolve(base, "javascript:void(0)"), None);
+        assert_eq!(
+            resolve(base, "mailto:a@b.c").as_deref(),
+            Some("mailto:a@b.c")
+        );
+    }
+
+    #[test]
+    fn links_and_anchors() {
+        let page = r##"<p><a name="art1"></a>Art. 1º Ver <a href="../leis/l1.htm">Lei 1</a> e <a href="#art2">art. 2</a>.</p>
+            <p id="art2">Art. 2º Texto.</p>"##;
+        let a = read_page(page.as_bytes(), "https://example.com/x/lei.htm", false);
+        assert_eq!(a.blocks[0].anchors, ["art1"]);
+        assert_eq!(a.blocks[1].anchors, ["art2"]);
+        let links: Vec<(&str, Option<&str>)> = a.blocks[0]
+            .runs
+            .iter()
+            .map(|r| (r.text.as_str(), r.link.as_deref()))
+            .collect();
+        assert_eq!(
+            links,
+            [
+                ("Art. 1º Ver ", None),
+                ("Lei 1", Some("https://example.com/leis/l1.htm")),
+                (" e ", None),
+                ("art. 2", Some("#art2")),
+                (".", None),
+            ]
+        );
     }
 }

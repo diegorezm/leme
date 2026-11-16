@@ -57,6 +57,12 @@ pub fn fetch(url: &str) -> io::Result<Vec<u8>> {
     Ok(output.stdout)
 }
 
+/// The PDF of a page saved from `url`, if there is one.
+pub fn saved(pages_dir: &Path, url: &str) -> Option<PathBuf> {
+    let (_, pdf) = target(pages_dir, url, "");
+    pdf.is_file().then_some(pdf)
+}
+
 /// Where the page from `url` is kept: its folder, and the PDF in it. An
 /// existing PDF keeps its name; a new one is named after `title`.
 pub fn target(pages_dir: &Path, url: &str, title: &str) -> (PathBuf, PathBuf) {

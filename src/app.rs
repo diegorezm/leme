@@ -1287,9 +1287,14 @@ impl App {
             Event::Labels(labels) => self.viewer.labels_found(window, labels),
             Event::Link(target) => {
                 if let Some(uri) = self.viewer.link(window, target) {
-                    // Only http(s) and mailto links get here (see pdf::safe_uri).
-                    let _ = Command::new("explorer.exe").arg(&uri).spawn();
-                    self.flash(window, &tr("Opened link in browser"));
+                    // Laws link to other laws: open those in Leme.
+                    if crate::html::is_planalto(&uri) {
+                        self.open_page(window, &uri);
+                    } else {
+                        // Only http(s) and mailto links get here (see pdf::safe_uri).
+                        let _ = Command::new("explorer.exe").arg(&uri).spawn();
+                        self.flash(window, &tr("Opened link in browser"));
+                    }
                 }
             }
             Event::Rendered {
@@ -1920,6 +1925,26 @@ impl App {
     /// The address the front tab was saved from, if it's a web page.
     fn active(&self) -> Option<PathBuf> {
         self.tabs.get(self.active?).cloned()
+    }
+
+    /// Opens a web page as a document: the saved copy if there is one,
+    /// else downloads it.
+    fn open_page(&mut self, window: &AppWindow, uri: &str) {
+        let Some(url) = web::address(uri.split('#').next().unwrap_or(uri)) else {
+            return;
+        };
+        let saved = config::data_dir().and_then(|d| web::saved(&d.join("pages"), &url));
+        match saved {
+            Some(pdf) => self.open_path(window, pdf),
+            None => {
+                self.flash(window, &tr("Downloading page…"));
+                let source = web::Source {
+                    url,
+                    revoked: self.config.show_revoked,
+                };
+                crate::load_page(window, source, None);
+            }
+        }
     }
 
     /// Opens `path` again after it was rewritten.
