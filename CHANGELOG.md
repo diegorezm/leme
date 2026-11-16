@@ -36,6 +36,23 @@ All notable changes to Leme (called dpdf until 1.1.0). Versions follow [Semantic
   which is its first entry (*Choose file…*, also bindable as
   `choose-file`).
 
+### Performance
+
+Measured on a 1493-page book (`cargo test --release bench_document`):
+
+| | 2.0.1 | 2.1.0 |
+|---|---|---|
+| Render of a 1600 px page | 28.4 ms | 13.8 ms |
+| Render of a 1600 px page, night colors | ~31 ms | 12.1 ms |
+
+- PDFium draws straight into one buffer, packed to RGB and recolored in a
+  single pass; the UI gets it with one copy instead of a pixel loop.
+- Search starts at the page you're reading and wraps around, so the next
+  match appears at once in long books.
+- Search results update only the page they're on, instead of rebuilding
+  every visible page for each page with a match.
+- Library pictures are decoded once per update instead of twice.
+
 ## 2.0.1 — 2026-11-16
 
 ### Changed
