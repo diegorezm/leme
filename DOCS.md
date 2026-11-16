@@ -43,23 +43,23 @@ With **vim keys** on: `j` `k` `h` `l` scroll, `Ctrl+D` / `Ctrl+U` half screen, `
 
 Leme has a few tools for studying, for exams for example, that stay out of the way when you don't use them.
 
-- **Colors with a meaning.** The five highlight colors have names, shown in the notes panel and in exports: ochre *Important* (`1`), vermilion *Doubt* (`2`), verdigris *Definition* (`3`), indigo *Example* (`4`), madder *Review* (`5`). Rename them and change their shades in Settings → Reading and study → Highlights (or in `config.toml`, below). Page thumbnails show which colors a page has, and the notes panel filters by color: from *All*, click a color to see it alone, then click others to add or remove them.
+- **Colors with a meaning.** The five highlight colors have names, shown in the notes panel and in exports: ochre _Important_ (`1`), vermilion _Doubt_ (`2`), verdigris _Definition_ (`3`), indigo _Example_ (`4`), madder _Review_ (`5`). Rename them and change their shades in Settings → Reading and study → Highlights (or in `config.toml`, below). Page thumbnails show which colors a page has, and the notes panel filters by color: from _All_, click a color to see it alone, then click others to add or remove them.
 - **Progress.** In the outline, click the box next to a section (or press `Ctrl+L` in it) to mark it read, then reviewed once and twice. The outline shows how much of the document you've read; the home screen shows it for every tab in the session, with notes and study time.
-- **Export.** `Ctrl+E` exports the notes in the colors the notes panel shows: as a Markdown summary grouped by section and color (or the Obsidian format, grouped by page), as a file Anki imports as cards (*File › Import*; the note is the front, the quote the back, color and document are tags), or as CSV. Reviewing the cards is left to Anki or whatever app you use.
+- **Export.** `Ctrl+E` exports the notes in the colors the notes panel shows: as a Markdown summary grouped by section and color (or the Obsidian format, grouped by page), as a file Anki imports as cards (_File › Import_; the note is the front, the quote the back, color and document are tags), or as CSV. Reviewing the cards is left to Anki or whatever app you use.
 - **Study time.** The header shows how long you've read today. Time counts while you use Leme (pauses longer than five minutes don't count) and is kept per day and document in `study.txt`. Click it or press `Ctrl+T` to pause. To remove it, turn off Settings → Reading → Study timer (`study_timer = false`); then nothing is counted.
-- **Session search and law articles.** `Ctrl+Shift+F` (or *All tabs* in the search panel) searches every tab in the session at once, listing the pages found under each document, ignoring case and accents (`licitacao` finds *licitação*). In Go to page, `art. 37` jumps to where that article starts.
+- **Session search and law articles.** `Ctrl+Shift+F` (or _All tabs_ in the search panel) searches every tab in the session at once, listing the pages found under each document, ignoring case and accents (`licitacao` finds _licitação_). In Go to page, `art. 37` jumps to where that article starts.
 
 ## Customizing
 
 Everything lives in `%APPDATA%\leme\` (Settings → General → Data folder):
 
-| File | What |
-|---|---|
-| `config.toml` | Preferences and keybindings. Settings writes here too. |
-| `themes\*.toml` | Your themes. Start from any file in this repo's [`themes/`](themes) folder. |
-| `annotations\*.toml` | Highlights and notes, one file per document. |
-| `state.txt` | Recent files, reading positions, and sessions with their tabs. |
-| `study.txt` | Study time per day and document. |
+| File                 | What                                                                        |
+| -------------------- | --------------------------------------------------------------------------- |
+| `config.toml`        | Preferences and keybindings. Settings writes here too.                      |
+| `themes\*.toml`      | Your themes. Start from any file in this repo's [`themes/`](themes) folder. |
+| `annotations\*.toml` | Highlights and notes, one file per document.                                |
+| `state.txt`          | Recent files, reading positions, and sessions with their tabs.              |
+| `study.txt`          | Study time per day and document.                                            |
 
 Font, keybindings, and more in `config.toml`:
 
@@ -132,17 +132,17 @@ cargo build --release                       # optimized binary: target/release/l
 
 Measured on a 1,088-page PDF (release build, Windows 11, `cargo test --release bench_document -- --ignored --nocapture` with `LEME_BENCH_PDF` set):
 
-| | |
-|---|---|
-| Open document | 9 ms |
-| Read outline (88 entries) | 2 ms |
-| Render a page at 1600 px | 12 ms average |
-| Render a thumbnail | 2 ms average |
-| Search every page | 1.2 s (in the background, one page at a time; results stream in) |
-| Read page labels | 0.3 s (in the background, after everything else) |
-| Window shown after launch | ~30 ms warm, ~0.4 s cold |
-| Memory, no document | ~130 MB working set |
-| Memory, 1,088-page document | ~210 MB working set |
-| `leme.exe` / `pdfium.dll` | 12 MB / 7.2 MB |
+|                             |                                                                  |
+| --------------------------- | ---------------------------------------------------------------- |
+| Open document               | 9 ms                                                             |
+| Read outline (88 entries)   | 2 ms                                                             |
+| Render a page at 1600 px    | 12 ms average                                                    |
+| Render a thumbnail          | 2 ms average                                                     |
+| Search every page           | 1.2 s (in the background, one page at a time; results stream in) |
+| Read page labels            | 0.3 s (in the background, after everything else)                 |
+| Window shown after launch   | ~30 ms warm, ~0.4 s cold                                         |
+| Memory, no document         | ~130 MB working set                                              |
+| Memory, 1,088-page document | ~210 MB working set                                              |
+| `leme.exe` / `pdfium.dll`   | 12 MB / 7.2 MB                                                   |
 
 Idle memory is above the 50 MB goal in AGENTS.md and hasn't been profiled yet (the OpenGL renderer and GPU driver are the likely bulk). With a document open it grows only by the bounded page and thumbnail caches.
