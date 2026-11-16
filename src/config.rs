@@ -118,6 +118,10 @@ pub struct Config {
     pub notes_folder: String,
     /// Shows study time in the header and records it per day.
     pub study_timer: bool,
+    /// Law shortcuts for the palette ("cf 37"): name -> address, e.g.
+    /// `lgpd = "https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm"`.
+    /// Adds to the built-in ones (cf, cc, cp, cpc, cpp, clt, ctn, cdc).
+    pub aliases: BTreeMap<String, String>,
     /// Side panel width in pixels, set by dragging its edge; 0 is
     /// automatic (from the thumbnail size).
     pub side_panel_width: f32,
@@ -155,6 +159,7 @@ impl Default for Config {
             notes_folder: String::new(),
             study_timer: true,
             side_panel_width: 0.0,
+            aliases: BTreeMap::new(),
             show_revoked: false,
             color_names: BTreeMap::new(),
             highlight_colors: BTreeMap::new(),

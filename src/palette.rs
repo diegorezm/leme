@@ -24,6 +24,13 @@ pub enum Target {
     LibraryIcon(usize, String),
     /// Adds the open document to a library.
     AddTo(usize),
+    /// A law from a shortcut ("cf 37"): its saved PDF or its address, and
+    /// the article to show.
+    Law {
+        path: Option<PathBuf>,
+        url: Option<String>,
+        article: Option<u32>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,7 +72,9 @@ impl Group {
 impl Target {
     pub fn group(&self) -> Group {
         match self {
-            Target::GoToPage(_) | Target::ChooseFile | Target::Page(_) => Group::Page,
+            Target::GoToPage(_) | Target::ChooseFile | Target::Page(_) | Target::Law { .. } => {
+                Group::Page
+            }
             Target::Theme(_) => Group::Themes,
             Target::Command(_) => Group::Commands,
             Target::Tab(_) | Target::Recent(_) => Group::Tabs,

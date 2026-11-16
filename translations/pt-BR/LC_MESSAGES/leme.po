@@ -877,3 +877,9 @@ msgstr "Lápis"
 
 msgid "Heart"
 msgstr "Coração"
+
+msgid "{}, art. {}"
+msgstr "{}, art. {}"
+
+msgid "downloads from planalto.gov.br"
+msgstr "baixa do planalto.gov.br"

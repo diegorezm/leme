@@ -139,6 +139,123 @@ impl Libraries {
     }
 }
 
+// ----- Law shortcuts ("cf 37") ------------------------------------------------
+
+const PLANALTO: &str = "https://www.planalto.gov.br/ccivil_03/";
+
+/// Built-in shortcuts: what to type, the law's name, and its address on
+/// planalto.gov.br. `[aliases]` in config.toml adds more or replaces these.
+pub const ALIASES: [(&str, &str, &str); 8] = [
+    (
+        "cf",
+        "Constituição Federal",
+        "constituicao/constituicao.htm",
+    ),
+    ("cc", "Código Civil", "leis/2002/l10406compilada.htm"),
+    ("cp", "Código Penal", "decreto-lei/del2848compilado.htm"),
+    (
+        "cpc",
+        "Código de Processo Civil",
+        "_ato2015-2018/2015/lei/l13105.htm",
+    ),
+    (
+        "cpp",
+        "Código de Processo Penal",
+        "decreto-lei/del3689compilado.htm",
+    ),
+    (
+        "clt",
+        "Consolidação das Leis do Trabalho",
+        "decreto-lei/del5452compilado.htm",
+    ),
+    (
+        "ctn",
+        "Código Tributário Nacional",
+        "leis/l5172compilado.htm",
+    ),
+    (
+        "cdc",
+        "Código de Defesa do Consumidor",
+        "leis/l8078compilado.htm",
+    ),
+];
+
+/// The built-in shortcut `key`: name and address.
+pub fn alias(key: &str) -> Option<(&'static str, String)> {
+    ALIASES
+        .iter()
+        .find(|(k, _, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, name, path)| (*name, format!("{PLANALTO}{path}")))
+}
+
+/// "cf 37", "cf art. 5º", "8112 art 41", "8.112": a law's shortcut or
+/// number, and maybe an article.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LawQuery {
+    /// Lowercase shortcut, or the law's number without dots.
+    pub key: String,
+    pub article: Option<u32>,
+}
+
+impl LawQuery {
+    pub fn is_number(&self) -> bool {
+        self.key.chars().all(|c| c.is_ascii_digit())
+    }
+}
+
+pub fn law_query(query: &str) -> Option<LawQuery> {
+    let mut words = query.split_whitespace();
+    let key = words.next()?.to_lowercase();
+    let key = if key.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        key.replace('.', "")
+    } else {
+        key
+    };
+    if key.is_empty() || !key.chars().all(|c| c.is_alphanumeric()) {
+        return None;
+    }
+    let rest: String = words.collect::<Vec<_>>().join(" ").to_lowercase();
+    let rest = rest
+        .trim_start_matches("art")
+        .trim_start_matches('.')
+        .trim();
+    let article = if rest.is_empty() {
+        None
+    } else {
+        let digits: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
+        let tail = rest[digits.len()..].trim_matches(|c| matches!(c, 'º' | '°' | 'o' | '-'));
+        if !tail.is_empty() {
+            return None;
+        }
+        Some(digits.replace('.', "").parse().ok()?)
+    };
+    Some(LawQuery { key, article })
+}
+
+/// A law number as laws write it: 8112 → "8.112".
+pub fn dotted(number: &str) -> String {
+    let digits: Vec<char> = number.chars().collect();
+    let mut out = String::new();
+    for (i, c) in digits.iter().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push('.');
+        }
+        out.push(*c);
+    }
+    out
+}
+
+/// The article a Planalto anchor points to: "art5", "art37a" → 5, 37.
+pub fn anchor_article(fragment: &str) -> Option<u32> {
+    let rest = fragment.to_lowercase();
+    let rest = rest.strip_prefix("art")?;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,5 +302,36 @@ mod tests {
         assert!(loaded.items.is_empty() && problem.is_some());
         fs::remove_dir_all(&dir).unwrap();
         assert_eq!(Libraries::load(&path).0, Libraries::default());
+    }
+
+    #[test]
+    fn law_queries() {
+        let q = |s: &str| law_query(s).map(|q| (q.key, q.article));
+        assert_eq!(q("cf 37"), Some(("cf".into(), Some(37))));
+        assert_eq!(q("CF art. 5º"), Some(("cf".into(), Some(5))));
+        assert_eq!(q("8112 art 41"), Some(("8112".into(), Some(41))));
+        assert_eq!(q("8.112"), Some(("8112".into(), None)));
+        assert_eq!(q("cpc 1.015"), Some(("cpc".into(), Some(1015))));
+        assert_eq!(q("cf trinta"), None);
+        assert_eq!(q("C:\\a.pdf"), None);
+        assert_eq!(q(""), None);
+        assert!(law_query("8112").unwrap().is_number());
+        assert!(!law_query("cf").unwrap().is_number());
+    }
+
+    #[test]
+    fn law_helpers() {
+        assert_eq!(dotted("8112"), "8.112");
+        assert_eq!(dotted("13105"), "13.105");
+        assert_eq!(dotted("101"), "101");
+        assert_eq!(anchor_article("art37a"), Some(37));
+        assert_eq!(anchor_article("ART5"), Some(5));
+        assert_eq!(anchor_article("cap1"), None);
+        assert_eq!(alias("CF").map(|a| a.0), Some("Constituição Federal"));
+        assert!(alias("cf")
+            .unwrap()
+            .1
+            .ends_with("constituicao/constituicao.htm"));
+        assert_eq!(alias("xyz"), None);
     }
 }

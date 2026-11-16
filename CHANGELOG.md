@@ -17,6 +17,12 @@ All notable changes to Leme (called dpdf until 1.1.0). Versions follow [Semantic
   hide revoked text*, or `show_revoked = true`).
 - **Links in saved pages** work: jumps within the page, other laws open in
   Leme, the rest in the browser.
+- **Libraries**: named collections of documents shared by every session,
+  each with an icon or your own picture, on the home screen and in the
+  palette (`Ctrl+Shift+L`). Saved laws go into *Leis* on their own.
+- **Law shortcuts**: `cf 37`, `cpc art. 1.015`, or a saved law's number
+  (`8112 41`) open the law at the article, downloading it if needed. Add
+  your own under `[aliases]` in `config.toml`.
 - **Resizable side panel** (drag its edge; double-click resets) and
   scrollbars in thumbnails, outline, and notes.
 

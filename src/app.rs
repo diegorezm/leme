@@ -138,6 +138,8 @@ pub struct App {
     palette_items: Rc<VecModel<PaletteItem>>,
 
     libraries: Libraries,
+    /// An article to show once its law opens: the law's PDF or address.
+    pending_article: Option<(Option<PathBuf>, Option<String>, u32)>,
 }
 
 impl App {
@@ -193,6 +195,7 @@ impl App {
             palette_selected: 0,
             palette_items,
             libraries: Libraries::default(),
+            pending_article: None,
         };
         if let Some(path) = libraries_path() {
             let (libraries, problem) = Libraries::load(&path);
@@ -1302,6 +1305,7 @@ impl App {
             } => {
                 self.viewer.opened(window, title, page_sizes, outline);
                 self.tabs_changed(window);
+                self.show_pending_article();
                 if let Some((path, page, query)) = self.open_at.take() {
                     if self.viewer.is_showing(&path) {
                         self.show_hit(window, page, &query);
@@ -1842,6 +1846,7 @@ impl App {
     pub fn palette_edited(&mut self, window: &AppWindow, query: &str) {
         let ranked = palette::filter(&self.palette_entries, query, usize::MAX);
         let mut shown = palette::grouped(ranked, PALETTE_GROUP_LIMIT, PALETTE_LIMIT);
+        shown.splice(0..0, self.law_entries(query));
         if self.adding {
             if let Some(url) = web::address(query) {
                 shown.insert(
@@ -1908,6 +1913,22 @@ impl App {
             Target::Session(i) => self.switch_session(window, i),
             Target::ChooseFile => self.open_dialog(window),
             Target::Library(i) => self.open_library(window, i),
+            Target::Law { path, url, article } => {
+                if let Some(article) = article {
+                    self.pending_article = Some((path.clone(), url.clone(), article));
+                }
+                match (path, url) {
+                    (Some(path), _) => {
+                        if self.active().as_deref() == Some(&path) {
+                            self.show_pending_article();
+                        } else {
+                            self.open_path(window, path);
+                        }
+                    }
+                    (None, Some(url)) => self.open_page(window, &url),
+                    (None, None) => {}
+                }
+            }
             Target::LibraryDoc(path) => self.open_path(window, path),
             Target::AddTo(i) => {
                 if let Some(doc) = self.active() {
@@ -2008,6 +2029,96 @@ impl App {
             });
         }
         entries
+    }
+
+    /// Laws matching a shortcut typed in the palette: "cf 37" (a shortcut
+    /// and maybe an article) or "8112" (a saved law's number).
+    fn law_entries(&self, query: &str) -> Vec<Entry> {
+        let Some(q) = library::law_query(query) else {
+            return Vec::new();
+        };
+        let title = |name: &str| match q.article {
+            Some(a) => trf("{}, art. {}", &[&name, &a]),
+            None => name.to_owned(),
+        };
+        let pages = config::data_dir().map(|d| d.join("pages"));
+        if q.is_number() {
+            let dotted = library::dotted(&q.key);
+            let mut docs: Vec<&PathBuf> = self.libraries.documents().map(|(_, d)| d).collect();
+            docs.extend(self.viewer.store.recent.iter().map(|r| &r.path));
+            docs.extend(self.tabs.iter());
+            let mut seen: Vec<&PathBuf> = Vec::new();
+            return docs
+                .into_iter()
+                .filter(|d| {
+                    let name = file_name(d);
+                    let words: Vec<&str> = name
+                        .split(|c: char| !c.is_alphanumeric() && c != '.')
+                        .collect();
+                    words.iter().any(|w| *w == dotted || *w == q.key)
+                })
+                .filter(|d| {
+                    let new = !seen.contains(d);
+                    seen.push(d);
+                    new
+                })
+                .take(3)
+                .map(|d| Entry {
+                    title: title(&file_name(d)),
+                    detail: q.key.clone(),
+                    target: Target::Law {
+                        path: Some(d.clone()),
+                        url: None,
+                        article: q.article,
+                    },
+                    keys: String::new(),
+                })
+                .collect();
+        }
+        let (name, url) = match self
+            .config
+            .aliases
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(&q.key))
+        {
+            Some((key, url)) => (key.to_uppercase(), web::address(url)),
+            None => match library::alias(&q.key) {
+                Some((name, url)) => (name.to_owned(), Some(url)),
+                None => return Vec::new(),
+            },
+        };
+        let Some(url) = url else {
+            return Vec::new();
+        };
+        let path = pages.and_then(|p| web::saved(&p, &url));
+        vec![Entry {
+            title: title(&name),
+            detail: if path.is_some() {
+                q.key.clone()
+            } else {
+                tr("downloads from planalto.gov.br")
+            },
+            target: Target::Law {
+                path,
+                url: Some(url),
+                article: q.article,
+            },
+            keys: String::new(),
+        }]
+    }
+
+    /// Jumps to the article asked for, if its law is the open document.
+    fn show_pending_article(&mut self) {
+        let Some((path, url, article)) = self.pending_article.clone() else {
+            return;
+        };
+        let Some(open) = self.active() else { return };
+        let same = path.as_deref() == Some(&open)
+            || url.is_some_and(|u| web::source_of(&open).is_some_and(|s| s.url == u));
+        if same {
+            self.pending_article = None;
+            self.viewer.find_article(article);
+        }
     }
 
     /// The libraries, to open one, or (`adding`) to add the open
@@ -2188,9 +2299,13 @@ impl App {
     /// Opens a web page as a document: the saved copy if there is one,
     /// else downloads it.
     fn open_page(&mut self, window: &AppWindow, uri: &str) {
-        let Some(url) = web::address(uri.split('#').next().unwrap_or(uri)) else {
+        let (page, fragment) = uri.split_once('#').unwrap_or((uri, ""));
+        let Some(url) = web::address(page) else {
             return;
         };
+        if let Some(article) = library::anchor_article(fragment) {
+            self.pending_article = Some((None, Some(url.clone()), article));
+        }
         let saved = config::data_dir().and_then(|d| web::saved(&d.join("pages"), &url));
         match saved {
             Some(pdf) => self.open_path(window, pdf),

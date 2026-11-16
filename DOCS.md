@@ -59,6 +59,15 @@ Links in the page stay clickable: those within it jump there, others open in the
 
 Libraries are named collections of documents, shared by every session: saved pages and PDFs from disk, each library with an icon or a picture of yours. They're listed on the home screen; `Ctrl+Shift+L` (*Libraries…*) opens one to search its documents, add or remove the open document, change its icon or picture, rename, or delete it (its documents stay). *Add document to library…* puts the open document in one. Laws saved from planalto.gov.br go into *Leis* on their own. The palette and Add to session find documents in every library.
 
+**Law shortcuts.** In the palette or Add to session, type a law's shortcut and maybe an article: `cf 37`, `cpc art. 1.015`, `clt`. Built in: `cf`, `cc`, `cp`, `cpc`, `cpp`, `clt`, `ctn`, `cdc`; a law not saved yet is downloaded from planalto.gov.br. A saved law's number works too (`8112 41`). Add your own in `config.toml`:
+
+```toml
+[aliases]
+lgpd = "https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm"
+```
+
+Links between laws that point to an article (`…l8112.htm#art5`) open at that article.
+
 ## Customizing
 
 Everything lives in `%APPDATA%\leme\` (Settings → General → Data folder):
