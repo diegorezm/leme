@@ -14,3 +14,8 @@ Thumbs.db
 .env
 .env.*
 /dist/
+
+# Local test documents; only the tiny fixtures are tracked
+*.pdf
+!tests/fixtures/*.pdf
+*:Zone.Identifier
