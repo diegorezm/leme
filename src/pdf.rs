@@ -65,6 +65,12 @@ pub enum Request {
     },
     /// Finds the page where article `number` of a law starts ("Art. 37").
     FindArticle { number: u32 },
+    /// Finds where annotations' texts are in the document at `path`
+    /// (rewritten since): id, text, and the page it was on.
+    Relocate {
+        path: PathBuf,
+        items: Vec<(u64, String, usize)>,
+    },
     /// Typesets a web page's text as a PDF at `out`, replacing it.
     Typeset {
         article: Box<crate::html::Article>,
@@ -145,6 +151,12 @@ pub enum Event<B = Bitmap> {
         number: u32,
         page: Option<usize>,
     },
+    /// Where annotations' texts were found: id, page, rects. Ids missing
+    /// were not found.
+    Relocated {
+        path: PathBuf,
+        found: Vec<(u64, usize, Vec<NormRect>)>,
+    },
     /// A web page was typeset to `path`, or why not.
     Typeset {
         path: PathBuf,
@@ -203,6 +215,7 @@ impl<B> Event<B> {
             Event::FilesDone { id } => Event::FilesDone { id },
             Event::Article { number, page } => Event::Article { number, page },
             Event::Typeset { path, result } => Event::Typeset { path, result },
+            Event::Relocated { path, found } => Event::Relocated { path, found },
             Event::Error(message) => Event::Error(message),
         }
     }
@@ -591,6 +604,14 @@ fn run(rx: Receiver<Request>, on_event: impl Fn(Event)) {
                     .map(|_| ())
                     .map_err(|err| err.to_string());
                 on_event(Event::Typeset { path: out, result });
+                continue;
+            }
+            Some(Request::Relocate { path, items }) => {
+                let found = match open(&pdfium, &path, None) {
+                    Ok((doc, sizes)) => relocate(&doc, sizes.len(), &items),
+                    Err(_) => Vec::new(),
+                };
+                on_event(Event::Relocated { path, found });
                 continue;
             }
             Some(Request::FindArticle { number }) => {
@@ -1533,6 +1554,33 @@ fn search_page(
         })
         .collect();
     Ok(matches)
+}
+
+/// Finds each text in the document, nearest its old page first, and
+/// returns where: id, page, and the match's rects.
+fn relocate(
+    doc: &PdfDocument,
+    page_count: usize,
+    items: &[(u64, String, usize)],
+) -> Vec<(u64, usize, Vec<NormRect>)> {
+    let mut texts: Vec<Option<String>> = vec![None; page_count];
+    let mut found = Vec::new();
+    for (id, text, old_page) in items {
+        let query = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if query.is_empty() {
+            continue;
+        }
+        let mut pages: Vec<usize> = (0..page_count).collect();
+        pages.sort_by_key(|p| p.abs_diff(*old_page));
+        let hit = pages.into_iter().find_map(|page| {
+            let matches = search_page(doc, page, &query, texts.get_mut(page)).ok()?;
+            matches.into_iter().next().map(|rects| (page, rects))
+        });
+        if let Some((page, rects)) = hit {
+            found.push((*id, page, rects));
+        }
+    }
+    found
 }
 
 /// Converts a PDF rect (points, origin bottom left) to page fractions.

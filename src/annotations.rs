@@ -59,6 +59,13 @@ pub struct Annotation {
     pub rects: Vec<NormRect>,
 }
 
+impl Annotation {
+    /// Its text wasn't found after the document was rewritten.
+    pub fn is_lost(&self) -> bool {
+        self.rects.is_empty()
+    }
+}
+
 /// How far the reader got with an outline section: 1 read, 2 reviewed
 /// once, 3 reviewed twice. Sections are matched by page and title, which
 /// stay the same as long as the PDF does.
@@ -128,6 +135,28 @@ impl Annotations {
             rects,
         });
         id
+    }
+
+    /// Moves annotations to where their text is in a rewritten document
+    /// (`found`: id, page, rects). The rest lose their place: they keep
+    /// their text and note but have no rects, and are listed as not found.
+    /// Returns how many were lost.
+    pub fn relocate(&mut self, found: &[(u64, usize, Vec<NormRect>)]) -> usize {
+        let mut lost = 0;
+        for item in &mut self.items {
+            match found.iter().find(|(id, _, _)| *id == item.id) {
+                Some((_, page, rects)) => {
+                    item.page = *page;
+                    item.rects = rects.clone();
+                    item.line = 0;
+                }
+                None => {
+                    item.rects.clear();
+                    lost += 1;
+                }
+            }
+        }
+        lost
     }
 
     pub fn level(&self, page: usize, title: &str) -> u8 {
@@ -345,6 +374,28 @@ mod tests {
         assert_eq!(date(0), "1970-01-01");
         assert_eq!(date(951_782_400), "2000-02-29");
         assert_eq!(date(1_794_009_600), "2026-11-07");
+    }
+
+    #[test]
+    fn relocation_moves_or_loses() {
+        let mut a = Annotations::default();
+        let kept = a.add(2, Kind::Highlight, "1", "art. 5".into(), vec![rect(0.5)], 0);
+        let gone = a.add(
+            3,
+            Kind::Highlight,
+            "2",
+            "revogado".into(),
+            vec![rect(0.2)],
+            0,
+        );
+        let lost = a.relocate(&[(kept, 7, vec![rect(0.1)])]);
+        assert_eq!(lost, 1);
+        let moved = a.items.iter().find(|i| i.id == kept).unwrap();
+        assert_eq!((moved.page, moved.rects[0].y), (7, 0.1));
+        assert!(!moved.is_lost());
+        let missing = a.items.iter().find(|i| i.id == gone).unwrap();
+        assert!(missing.is_lost());
+        assert_eq!(missing.text, "revogado");
     }
 
     #[test]

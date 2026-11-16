@@ -784,3 +784,9 @@ msgstr "a página não tem texto legível (pode precisar de JavaScript)"
 
 msgid "Show or hide revoked text"
 msgstr "Mostrar ou esconder texto revogado"
+
+msgid "Not found after updating"
+msgstr "Não encontrados após atualizar"
+
+msgid "{} highlights not found; they are listed last in notes"
+msgstr "{} destaques não encontrados; estão no fim das notas"

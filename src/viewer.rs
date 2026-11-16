@@ -15,7 +15,7 @@ use crate::annotations::{self, Annotations, History, Kind};
 use crate::cache::PageCache;
 use crate::config::{parse_color, DefaultZoom};
 use crate::export;
-use crate::i18n::trf;
+use crate::i18n::{tr, trf};
 use crate::keymap::Action;
 use crate::layout::{self, Layout, Zoom};
 use crate::nav;
@@ -304,6 +304,25 @@ impl Viewer {
             source,
             out,
         });
+    }
+
+    /// Asks the worker where the annotations of `path` now are, after the
+    /// file was rewritten; `false` if it has none.
+    pub fn relocate_annotations(&self, path: &Path) -> bool {
+        let annotations = Annotations::load(path);
+        if annotations.items.is_empty() {
+            return false;
+        }
+        let items = annotations
+            .items
+            .iter()
+            .map(|a| (a.id, a.text.clone(), a.page))
+            .collect();
+        self.worker.send(Request::Relocate {
+            path: path.to_owned(),
+            items,
+        });
+        true
     }
 
     pub fn find_article(&self, number: u32) {
@@ -972,20 +991,31 @@ impl Viewer {
                     .filter(|a| !self.hidden_colors.contains(&a.color))
                     .collect();
                 notes.sort_by(|a, b| {
-                    a.page.cmp(&b.page).then_with(|| {
-                        let y = |n: &annotations::Annotation| n.rects.first().map_or(0.0, |r| r.y);
-                        y(a).total_cmp(&y(b))
-                    })
+                    a.is_lost()
+                        .cmp(&b.is_lost())
+                        .then(a.page.cmp(&b.page))
+                        .then_with(|| {
+                            let y =
+                                |n: &annotations::Annotation| n.rects.first().map_or(0.0, |r| r.y);
+                            y(a).total_cmp(&y(b))
+                        })
                 });
                 // Notes are listed under the outline section they are in.
                 let mut section = None;
                 notes
                     .into_iter()
                     .map(|a| {
-                        let here = self.section_at(a.page);
+                        // Lost notes go last, under one heading, as if a
+                        // section past the last.
+                        let here = if a.is_lost() {
+                            Some(usize::MAX)
+                        } else {
+                            self.section_at(a.page)
+                        };
                         let header = match here {
-                            Some(i) if section != here => self.outline[i].title.as_str(),
-                            _ => "",
+                            Some(usize::MAX) if section != here => tr("Not found after updating"),
+                            Some(i) if section != here => self.outline[i].title.clone(),
+                            _ => String::new(),
                         };
                         section = here;
                         let row = SideItem {

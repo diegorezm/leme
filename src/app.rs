@@ -7,6 +7,7 @@ use std::rc::Rc;
 
 use slint::{ComponentHandle, Model, VecModel};
 
+use crate::annotations::Annotations;
 use crate::config::{
     self, built_in_themes, load_themes, Config, Corners, DefaultZoom, Density, PageColors,
     ThemeDef, ThumbnailSize,
@@ -1300,12 +1301,31 @@ impl App {
             Event::FilesDone { .. } => {}
             Event::Article { number, page } => self.article_found(window, number, page),
             Event::Typeset { path, result } => match result {
+                // Highlights first find their text again, then it opens.
                 Ok(()) => {
-                    self.viewer.forget(&path);
-                    self.open_path(window, path);
+                    if !self.viewer.relocate_annotations(&path) {
+                        self.reopen(window, path);
+                    }
                 }
                 Err(err) => self.flash(window, &trf("Couldn't save the page: {}", &[&err])),
             },
+            Event::Relocated { path, found } => {
+                let mut annotations = Annotations::load(&path);
+                let lost = annotations.relocate(&found);
+                if let Err(err) = annotations.save(&path) {
+                    self.flash(window, &trf("Couldn't save notes: {}", &[&err]));
+                }
+                self.reopen(window, path);
+                if lost > 0 {
+                    self.flash(
+                        window,
+                        &trf(
+                            "{} highlights not found; they are listed last in notes",
+                            &[&lost],
+                        ),
+                    );
+                }
+            }
             Event::Error(message) => {
                 if let Some(path) = self.viewer.open_failed(window, message) {
                     if let Some(index) = self.tabs.iter().position(|t| *t == path) {
@@ -1888,6 +1908,12 @@ impl App {
     /// The address the front tab was saved from, if it's a web page.
     fn active(&self) -> Option<PathBuf> {
         self.tabs.get(self.active?).cloned()
+    }
+
+    /// Opens `path` again after it was rewritten.
+    fn reopen(&mut self, window: &AppWindow, path: PathBuf) {
+        self.viewer.forget(&path);
+        self.open_path(window, path);
     }
 
     /// Where the front tab was saved from, if it's a web page.
