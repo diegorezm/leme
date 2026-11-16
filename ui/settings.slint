@@ -223,6 +223,8 @@ export component SettingsView inherits Rectangle {
     in property <bool> show-libraries: true;
     in property <[LibraryRow]> library-rows;
     in property <[string]> library-icons;
+    in property <[string]> library-icon-keys;
+    in-out property <int> library-selected;
     in-out property <string> query <=> search.text;
     // key/value pairs, or commands with an empty value.
     callback set(string, string);
@@ -785,44 +787,137 @@ export component SettingsView inherits Rectangle {
                     if root.section == "libraries": VerticalLayout {
                         spacing: 24px;
 
-                        Group {
-                            title: @tr("New library");
+                        Text {
+                            text: @tr("Libraries keep documents for every session: saved pages and PDFs. Laws saved from planalto.gov.br go into Leis on their own.");
+                            color: Theme.text-muted;
+                            font-size: Theme.font-size-small;
+                            wrap: word-wrap;
+                        }
 
-                            Row {
-                                title: @tr("Name");
-                                description: @tr("Libraries keep documents for every session: saved pages and PDFs. Laws saved from planalto.gov.br go into Leis on their own.");
-                                HorizontalLayout {
-                                    spacing: 6px;
+                        // Every library as a card, then one to make a new one.
+                        Rectangle {
+                            property <length> card: 132px;
+                            property <length> gap: 14px;
+                            property <int> columns: max(1, floor((self.width + self.gap) / (self.card + self.gap)));
+                            height: ceil((root.library-rows.length + 1) / self.columns) * (self.card + 46px + self.gap);
+
+                            for library[i] in root.library-rows: Rectangle {
+                                x: mod(i, parent.columns) * (parent.card + parent.gap);
+                                y: floor(i / parent.columns) * (parent.card + 46px + parent.gap);
+                                width: parent.card;
+                                height: parent.card + 46px;
+
+                                card-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.library-selected = i;
+                                    }
+                                }
+
+                                VerticalLayout {
+                                    spacing: 8px;
 
                                     Rectangle {
-                                        width: 180px;
-                                        height: 30px;
-                                        border-radius: Theme.radius;
-                                        border-width: 1px;
-                                        border-color: new-name.has-focus ? Theme.accent : Theme.border;
+                                        height: parent.width;
+                                        border-radius: Theme.radius + 4px;
+                                        border-width: root.library-selected == i ? 2px : 1px;
+                                        border-color: root.library-selected == i ? Theme.accent : card-touch.has-hover ? Theme.text-muted : Theme.border;
+                                        background: Theme.surface;
+                                        clip: true;
+
+                                        if library.has-image: Image {
+                                            width: parent.width;
+                                            height: parent.height;
+                                            source: library.image;
+                                            image-fit: cover;
+                                        }
+                                        if !library.has-image: Icon {
+                                            x: (parent.width - self.width) / 2;
+                                            y: (parent.height - self.height) / 2;
+                                            width: 46px;
+                                            height: 46px;
+                                            name: library.icon;
+                                            color: Theme.accent;
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        spacing: 1px;
+
+                                        Text {
+                                            text: library.name;
+                                            color: Theme.text;
+                                            font-size: Theme.font-size;
+                                            overflow: elide;
+                                        }
+                                        Text {
+                                            text: library.count;
+                                            color: Theme.text-muted;
+                                            font-size: Theme.font-size-small;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // New library: type its name on the card.
+                            Rectangle {
+                                x: mod(root.library-rows.length, parent.columns) * (parent.card + parent.gap);
+                                y: floor(root.library-rows.length / parent.columns) * (parent.card + 46px + parent.gap);
+                                width: parent.card;
+                                height: parent.card;
+                                border-radius: Theme.radius + 4px;
+                                border-width: 1px;
+                                border-color: new-name.has-focus ? Theme.accent : Theme.border;
+                                background: new-touch.has-hover && !new-name.has-focus ? Theme.hover : transparent;
+
+                                new-touch := TouchArea {
+                                    mouse-cursor: text;
+                                    clicked => {
+                                        new-name.focus();
+                                    }
+                                }
+
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 10px;
+                                    padding: 12px;
+
+                                    Icon {
+                                        x: (parent.width - self.width) / 2;
+                                        width: 20px;
+                                        height: 20px;
+                                        name: "plus";
+                                    }
+                                    Rectangle {
+                                        height: 22px;
 
                                         new-name := Field {
-                                            x: 8px;
-                                            width: parent.width - 16px;
-                                            font-size: Theme.font-size-ui;
+                                            width: parent.width;
+                                            font-size: Theme.font-size-small;
+                                            horizontal-alignment: center;
                                             accepted => {
                                                 root.set("library-new", self.text);
                                                 self.text = "";
+                                                root.library-selected = root.library-rows.length;
                                             }
                                         }
-                                    }
-                                    Button {
-                                        text: @tr("Create");
-                                        clicked => {
-                                            root.set("library-new", new-name.text);
-                                            new-name.text = "";
+                                        if new-name.text == "": Text {
+                                            width: parent.width;
+                                            text: new-name.has-focus ? @tr("Name, then Enter") : @tr("New library");
+                                            color: Theme.text-muted;
+                                            font-size: Theme.font-size-small;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                            height: parent.height;
                                         }
                                     }
                                 }
                             }
                         }
 
+                        // The chosen library.
                         for library[i] in root.library-rows: Group {
+                            visible: i == root.library-selected;
+                            height: i == root.library-selected ? self.preferred-height : 0;
                             title: library.name;
 
                             Row {
@@ -850,34 +945,25 @@ export component SettingsView inherits Rectangle {
                                 title: @tr("Icon");
                                 description: library.has-image ? @tr("Your picture is shown instead of the icon.") : "";
                                 HorizontalLayout {
-                                    spacing: 8px;
+                                    spacing: 2px;
 
-                                    if library.has-image: Image {
-                                        y: (parent.height - self.height) / 2;
-                                        width: 22px;
-                                        height: 22px;
-                                        source: library.image;
-                                        image-fit: cover;
-                                    }
-                                    if !library.has-image: Icon {
-                                        y: (parent.height - self.height) / 2;
-                                        width: 16px;
-                                        height: 16px;
-                                        name: library.icon;
-                                        color: Theme.accent;
-                                    }
-                                    Select {
-                                        options: root.library-icons;
-                                        value: library.icon-title;
-                                        selected(value) => {
-                                            root.set("library-icon", "\{i}\n\{value}");
-                                        }
-                                    }
-                                    Button {
-                                        text: library.has-image ? @tr("Remove picture") : @tr("Picture…");
+                                    for key in root.library-icon-keys: QuietButton {
+                                        icon: key;
+                                        icon-size: 16px;
+                                        selected: !library.has-image && library.icon == key;
                                         clicked => {
-                                            root.set(library.has-image ? "library-clear-picture" : "library-picture", "\{i}");
+                                            root.set("library-icon", "\{i}\n\{key}");
                                         }
+                                    }
+                                }
+                            }
+                            Row {
+                                title: @tr("Picture");
+                                description: @tr("PNG, JPG, SVG, or WebP, shown on the card and the home screen.");
+                                Button {
+                                    text: library.has-image ? @tr("Remove picture") : @tr("Picture…");
+                                    clicked => {
+                                        root.set(library.has-image ? "library-clear-picture" : "library-picture", "\{i}");
                                     }
                                 }
                             }
@@ -898,6 +984,7 @@ export component SettingsView inherits Rectangle {
                                     text: @tr("Delete");
                                     clicked => {
                                         root.set("library-delete", "\{i}");
+                                        root.library-selected = max(0, i - 1);
                                     }
                                 }
                             }

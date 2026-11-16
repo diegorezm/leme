@@ -943,3 +943,18 @@ msgstr "Arquivo não encontrado"
 
 msgid "{} studied"
 msgstr "{} de estudo"
+
+msgid "Add documents"
+msgstr "Adicionar documentos"
+
+msgid "Add to {}: a file, a recent document, or a page's address…"
+msgstr "Adicionar a {}: um arquivo, um documento recente ou o endereço de uma página…"
+
+msgid "Name, then Enter"
+msgstr "Nome e Enter"
+
+msgid "Picture"
+msgstr "Imagem"
+
+msgid "PNG, JPG, SVG, or WebP, shown on the card and the home screen."
+msgstr "PNG, JPG, SVG ou WebP, mostrada no card e na tela inicial."

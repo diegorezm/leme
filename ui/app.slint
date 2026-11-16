@@ -1634,6 +1634,7 @@ export component SettingsWindow inherits Window {
     in property <bool> show-libraries: true;
     in property <[LibraryRow]> library-rows;
     in property <[string]> library-icons;
+    in property <[string]> library-icon-keys;
     callback set(string, string);
     callback searched(string);
     callback close-requested();
@@ -1662,6 +1663,7 @@ export component SettingsWindow inherits Window {
             show-libraries: root.show-libraries;
             library-rows: root.library-rows;
             library-icons: root.library-icons;
+            library-icon-keys: root.library-icon-keys;
             theme: root.theme-name;
             page-colors: root.page-colors;
             font-options: root.font-options;

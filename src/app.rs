@@ -144,6 +144,10 @@ pub struct App {
     library_query: String,
     /// The documents behind the library's cards, in order.
     library_books: Vec<PathBuf>,
+    /// The add panel is adding to this library instead of the session.
+    adding_to: Option<usize>,
+    /// A page being downloaded into a library: its address and the library.
+    page_for_library: Option<(String, usize)>,
     /// First pages of library documents, and their page counts.
     covers: HashMap<PathBuf, (slint::Image, usize)>,
     /// An article to show once its law opens: the law's PDF or address.
@@ -207,6 +211,8 @@ impl App {
             library_view: None,
             library_query: String::new(),
             library_books: Vec::new(),
+            adding_to: None,
+            page_for_library: None,
             covers: HashMap::new(),
         };
         if let Some(path) = libraries_path() {
@@ -1386,6 +1392,16 @@ impl App {
                 // Highlights first find their text again, then it opens.
                 Ok(()) => {
                     self.file_law(window, &path);
+                    let wanted = self.page_for_library.take();
+                    if let Some((url, library)) = wanted {
+                        if web::source_of(&path).is_some_and(|s| s.url == url) {
+                            self.libraries.add(library, &path);
+                            self.libraries_changed(window);
+                            self.viewer.request_covers(vec![path]);
+                            return;
+                        }
+                        self.page_for_library = Some((url, library));
+                    }
                     if !self.viewer.relocate_annotations(&path) {
                         self.reopen(window, path);
                     }
@@ -1787,6 +1803,7 @@ impl App {
     /// The palette as a picker of what to add to the session: a file from
     /// disk, a typed path, or a recent document from any session.
     fn open_add_panel(&mut self, window: &AppWindow) {
+        self.adding_to = None;
         let mut entries = vec![Entry {
             target: Target::ChooseFile,
             title: tr("Choose file…"),
@@ -1821,6 +1838,9 @@ impl App {
     fn show_palette(&mut self, window: &AppWindow, entries: Vec<Entry>, adding: bool) {
         self.palette_entries = entries;
         self.adding = adding;
+        if !adding {
+            self.adding_to = None;
+        }
         let placeholder = if adding {
             ADD_PLACEHOLDER
         } else {
@@ -1933,6 +1953,9 @@ impl App {
             return;
         };
         self.set_overlay(window, "");
+        if let Some(library) = self.adding_to.take() {
+            return self.add_to_library(window, library, entry.target);
+        }
         match entry.target {
             Target::Command(action) => self.run(window, action),
             Target::Tab(i) => self.activate(window, i),
@@ -2104,22 +2127,60 @@ impl App {
                     self.open_path(window, doc);
                 }
             }
+            // The add panel, adding to this library.
             "add" => {
-                let picked = rfd::FileDialog::new()
-                    .set_title(tr("Add PDFs"))
-                    .add_filter("PDF", &["pdf"])
-                    .pick_files()
+                self.open_add_panel(window);
+                self.adding_to = Some(library);
+                let name = self
+                    .libraries
+                    .items
+                    .get(library)
+                    .map(|l| l.name.clone())
                     .unwrap_or_default();
-                for doc in &picked {
-                    self.libraries.add(library, doc);
-                }
-                if !picked.is_empty() {
-                    self.libraries_changed(window);
-                    self.viewer.request_covers(picked);
-                }
+                window.set_palette_placeholder(
+                    trf(
+                        "Add to {}: a file, a recent document, or a page's address…",
+                        &[&name],
+                    )
+                    .into(),
+                );
             }
             "manage" => self.library_palette(window, library),
             _ => {}
+        }
+    }
+
+    /// What was picked in the add panel while it adds to `library`:
+    /// files and documents go in at once, pages once they're saved.
+    fn add_to_library(&mut self, window: &AppWindow, library: usize, target: Target) {
+        let docs = match target {
+            Target::ChooseFile => rfd::FileDialog::new()
+                .set_title(tr("Add PDFs"))
+                .add_filter("PDF", &["pdf"])
+                .pick_files()
+                .unwrap_or_default(),
+            Target::Recent(path) | Target::LibraryDoc(path) => vec![path],
+            Target::Law {
+                path: Some(path), ..
+            } => vec![path],
+            Target::Law { url: Some(url), .. } | Target::Page(url) => {
+                self.page_for_library = Some((url.clone(), library));
+                self.flash(window, &tr("Downloading page…"));
+                let source = web::Source {
+                    url,
+                    revoked: self.config.show_revoked,
+                };
+                crate::load_page(window, source, None);
+                return;
+            }
+            _ => return,
+        };
+        for doc in &docs {
+            self.libraries.add(library, doc);
+        }
+        if !docs.is_empty() {
+            self.libraries_changed(window);
+            self.viewer.request_covers(docs);
         }
     }
 
@@ -2457,7 +2518,7 @@ impl App {
             "icon" => {
                 let icon = library::ICONS
                     .iter()
-                    .find(|icon| tr(icon_title(icon)) == arg);
+                    .find(|icon| **icon == arg || tr(icon_title(icon)) == arg);
                 if let (Some(icon), Some(library)) = (icon, self.libraries.items.get_mut(i)) {
                     library.icon = (*icon).to_owned();
                     library.image = None;
@@ -2549,6 +2610,9 @@ impl App {
             .collect();
         self.settings
             .set_library_icons(Rc::new(VecModel::from(icons)).into());
+        let keys: Vec<slint::SharedString> = library::ICONS.iter().map(|i| (*i).into()).collect();
+        self.settings
+            .set_library_icon_keys(Rc::new(VecModel::from(keys)).into());
     }
 
     /// Saved laws go into the Laws library, made on first use.
