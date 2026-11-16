@@ -261,6 +261,8 @@ struct Line {
     color: (u8, u8, u8),
     /// Extra space above it.
     gap: f32,
+    /// An outline entry starts here: level and title.
+    mark: Option<(u8, String)>,
 }
 
 /// Writes `article` as a PDF at `out`. `source` is shown under the title.
@@ -305,6 +307,7 @@ pub fn write(
                 indent: st.indent,
                 color,
                 gap: if i == 0 { first_gap } else { 0.0 },
+                mark: None,
             });
         }
     };
@@ -317,7 +320,11 @@ pub fn write(
         mono: false,
         italic: false,
     };
-    if !article.title.is_empty() {
+    let titled = article
+        .blocks
+        .first()
+        .is_some_and(|b| b.text() == article.title);
+    if !article.title.is_empty() && !titled {
         push_block(
             vec![(article.title.clone(), Face::Bold, false)],
             &title_style,
@@ -331,19 +338,40 @@ pub fn write(
         size: 8.0,
         ..style(Kind::Paragraph)
     };
-    push_block(
-        vec![(source.to_owned(), Face::Regular, false)],
-        &source_style,
-        MUTED,
-        4.0,
-        &mut lines,
-        &mut metrics,
-    );
+    // The address goes under the title, which is either the page's
+    // title or its first block.
+    let source_line = vec![(source.to_owned(), Face::Regular, false)];
+    if !titled {
+        push_block(
+            source_line.clone(),
+            &source_style,
+            MUTED,
+            4.0,
+            &mut lines,
+            &mut metrics,
+        );
+    }
 
     for (i, block) in article.blocks.iter().enumerate() {
+        if titled && i == 1 {
+            push_block(
+                source_line.clone(),
+                &source_style,
+                MUTED,
+                4.0,
+                &mut lines,
+                &mut metrics,
+            );
+        }
         let st = style(block.kind);
         let runs = block_runs(block, &st);
-        let gap = if i == 0 { 14.0 } else { st.space_before };
+        // Space between the title block (title and address) and the text.
+        let gap = if i == usize::from(titled) {
+            14.0
+        } else {
+            st.space_before
+        };
+        let first = lines.len();
         if block.kind == Kind::ListItem {
             let mut runs = runs;
             runs.insert(0, ("• ".to_owned(), Face::Regular, false));
@@ -351,9 +379,13 @@ pub fn write(
         } else {
             push_block(runs, &st, INK, gap, &mut lines, &mut metrics);
         }
+        if let (Kind::Heading(level), Some(line)) = (block.kind, lines.get_mut(first)) {
+            line.mark = Some((level, block.text()));
+        }
     }
 
     // Lay lines onto pages.
+    let mut marks: Vec<Mark> = Vec::new();
     let mut pages = 0;
     let mut y = 0.0;
     let mut page: Option<PdfPage> = None;
@@ -364,7 +396,13 @@ pub fn write(
         } else {
             0.0
         };
-        if page.is_none() || y - gap - height < MARGIN {
+        // Keep a heading with the lines after it.
+        let needed = if line.mark.is_some() {
+            height * 3.0
+        } else {
+            height
+        };
+        if page.is_none() || y - gap - needed < MARGIN {
             if let Some(mut done) = page.take() {
                 done.regenerate_content()?;
             }
@@ -385,6 +423,14 @@ pub fn write(
         }
         y -= height;
         let Some(page) = page.as_mut() else { continue };
+        if let Some((level, title)) = line.mark {
+            marks.push(Mark {
+                level,
+                title,
+                page: pages - 1,
+                top: y + height,
+            });
+        }
         let baseline = y + line.size * (LEADING - 1.0) / 2.0 + line.size * 0.2;
         let color = PdfColor::new(line.color.0, line.color.1, line.color.2, 255);
         for p in &line.pieces {
@@ -422,7 +468,104 @@ pub fn write(
         pages = 1;
     }
     doc.save_to_file(out)?;
+    drop(doc);
+    // PDFium can't write bookmarks; lopdf adds them to the saved file. A
+    // failure leaves the document without an outline, still readable.
+    let _ = add_outline(out, &marks);
     Ok(pages)
+}
+
+/// A heading's place, for the outline.
+struct Mark {
+    level: u8,
+    title: String,
+    /// Zero-based page, and the heading's top in PDF points.
+    page: usize,
+    top: f32,
+}
+
+/// Writes `marks` into the PDF at `path` as its outline (bookmarks),
+/// nested by level.
+fn add_outline(path: &Path, marks: &[Mark]) -> Result<(), lopdf::Error> {
+    use lopdf::{Dictionary, Document, Object, ObjectId, StringFormat};
+    if marks.is_empty() {
+        return Ok(());
+    }
+    let mut doc = Document::load(path)?;
+    let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    let root_id = doc.new_object_id();
+    let ids: Vec<ObjectId> = marks.iter().map(|_| doc.new_object_id()).collect();
+
+    // Parent of each mark: the nearest earlier mark with a smaller level.
+    let mut parent: Vec<Option<usize>> = Vec::with_capacity(marks.len());
+    let mut stack: Vec<usize> = Vec::new();
+    for (i, m) in marks.iter().enumerate() {
+        while stack.last().is_some_and(|&j| marks[j].level >= m.level) {
+            stack.pop();
+        }
+        parent.push(stack.last().copied());
+        stack.push(i);
+    }
+    let children =
+        |p: Option<usize>| -> Vec<usize> { (0..marks.len()).filter(|&i| parent[i] == p).collect() };
+    let title = |text: &str| {
+        let mut bytes = vec![0xfe, 0xff];
+        bytes.extend(text.encode_utf16().flat_map(u16::to_be_bytes));
+        Object::String(bytes, StringFormat::Hexadecimal)
+    };
+
+    let mut descendants = vec![0i64; marks.len()];
+    for i in (0..marks.len()).rev() {
+        if let Some(p) = parent[i] {
+            descendants[p] += descendants[i] + 1;
+        }
+    }
+    for (i, m) in marks.iter().enumerate() {
+        let siblings = children(parent[i]);
+        let at = siblings.iter().position(|&s| s == i).unwrap_or(0);
+        let kids = children(Some(i));
+        let mut dict = Dictionary::new();
+        dict.set("Title", title(&m.title));
+        dict.set("Parent", parent[i].map_or(root_id, |p| ids[p]));
+        if at > 0 {
+            dict.set("Prev", ids[siblings[at - 1]]);
+        }
+        if let Some(&next) = siblings.get(at + 1) {
+            dict.set("Next", ids[next]);
+        }
+        if let (Some(&first), Some(&last)) = (kids.first(), kids.last()) {
+            dict.set("First", ids[first]);
+            dict.set("Last", ids[last]);
+            dict.set("Count", Object::Integer(descendants[i]));
+        }
+        if let Some(&page) = pages.get(m.page) {
+            dict.set(
+                "Dest",
+                vec![
+                    Object::Reference(page),
+                    "XYZ".into(),
+                    Object::Null,
+                    Object::Real(m.top),
+                    Object::Null,
+                ],
+            );
+        }
+        doc.objects.insert(ids[i], Object::Dictionary(dict));
+    }
+    let top = children(None);
+    let mut root = Dictionary::new();
+    root.set("Type", "Outlines");
+    if let (Some(&first), Some(&last)) = (top.first(), top.last()) {
+        root.set("First", ids[first]);
+        root.set("Last", ids[last]);
+    }
+    root.set("Count", Object::Integer(marks.len() as i64));
+    doc.objects.insert(root_id, Object::Dictionary(root));
+    let catalog = doc.catalog_mut()?;
+    catalog.set("Outlines", root_id);
+    catalog.set("PageMode", "UseOutlines");
+    doc.save(path)?;
+    Ok(())
 }
 
 fn block_runs(block: &Block, st: &Style) -> Vec<(String, Face, bool)> {
@@ -526,7 +669,8 @@ mod tests {
         };
         let bytes = std::fs::read(&file).unwrap();
         let started = std::time::Instant::now();
-        let article = crate::html::extract(&crate::html::decode(&bytes));
+        let url = std::env::var("LEME_PAGE_URL").unwrap_or_default();
+        let article = crate::html::read_page(&bytes, &url, false);
         let read = started.elapsed();
         let out = std::path::PathBuf::from(format!("{file}.pdf"));
         let pages = write(&pdfium, &article, "https://example.com", &out).unwrap();
@@ -537,5 +681,13 @@ mod tests {
             article.word_count(),
             started.elapsed()
         );
+        let doc = pdfium.load_pdf_from_file(&out, None).unwrap();
+        let outline: Vec<String> = doc
+            .bookmarks()
+            .iter()
+            .take(12)
+            .map(|b| b.title().unwrap_or_default())
+            .collect();
+        println!("outline: {outline:?}");
     }
 }

@@ -781,3 +781,6 @@ msgstr "Sem pasta de dados para salvar a página"
 
 msgid "the page has no readable text (it may need JavaScript)"
 msgstr "a página não tem texto legível (pode precisar de JavaScript)"
+
+msgid "Show or hide revoked text"
+msgstr "Mostrar ou esconder texto revogado"

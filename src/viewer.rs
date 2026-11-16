@@ -372,6 +372,16 @@ impl Viewer {
         self.update_recent();
     }
 
+    /// Forgets what is kept of `path` because the file was rewritten, so
+    /// opening it reads the new file. It reopens at its saved page.
+    pub fn forget(&mut self, path: &Path) {
+        self.tab_views.retain(|v| v.path != path);
+        if self.path.as_deref() == Some(path) {
+            self.remember_position();
+            self.path = None;
+        }
+    }
+
     /// Remembers the open document's view for switching back to it.
     fn keep_view(&mut self, window: &AppWindow) {
         let Some(path) = self.path.clone() else {

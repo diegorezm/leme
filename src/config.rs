@@ -118,6 +118,9 @@ pub struct Config {
     pub notes_folder: String,
     /// Shows study time in the header and records it per day.
     pub study_timer: bool,
+    /// Saved law pages show revoked (struck-through) text instead of
+    /// hiding it. Each page can switch from the palette.
+    pub show_revoked: bool,
     /// What each highlight color means, e.g. `red = "Trap"`. Shown in the
     /// notes filter and used in exports.
     pub color_names: BTreeMap<String, String>,
@@ -148,6 +151,7 @@ impl Default for Config {
             vim: false,
             notes_folder: String::new(),
             study_timer: true,
+            show_revoked: false,
             color_names: BTreeMap::new(),
             highlight_colors: BTreeMap::new(),
             keys: BTreeMap::new(),

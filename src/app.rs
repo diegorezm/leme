@@ -1,7 +1,6 @@
 //! Application state above the open document: tabs and the session,
 //! keybindings, the command palette, settings, themes, and overlays.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
@@ -648,12 +647,22 @@ impl App {
             Action::Open => self.open_add_panel(window),
             Action::ChooseFile => self.open_dialog(window),
             Action::UpdatePage => match self.active_source() {
-                Some(url) => {
+                Some(source) => {
                     self.flash(window, &tr("Downloading page…"));
-                    crate::fetch_page(window, url);
+                    crate::load_page(window, source, None);
                 }
                 None => self.flash(window, &tr("This document didn't come from a web page")),
             },
+            Action::ToggleRevoked => {
+                let saved = self.active().and_then(|p| web::saved_html(&p));
+                match (self.active_source(), saved) {
+                    (Some(mut source), Some(html)) => {
+                        source.revoked = !source.revoked;
+                        crate::load_page(window, source, Some(html));
+                    }
+                    _ => self.flash(window, &tr("This document didn't come from a web page")),
+                }
+            }
             Action::CommandPalette => self.open_palette(window),
             Action::Search if self.viewer.page_count() > 0 => self.open_search(window, false),
             Action::SearchSession => self.open_search(window, true),
@@ -1291,7 +1300,10 @@ impl App {
             Event::FilesDone { .. } => {}
             Event::Article { number, page } => self.article_found(window, number, page),
             Event::Typeset { path, result } => match result {
-                Ok(()) => self.open_path(window, path),
+                Ok(()) => {
+                    self.viewer.forget(&path);
+                    self.open_path(window, path);
+                }
                 Err(err) => self.flash(window, &trf("Couldn't save the page: {}", &[&err])),
             },
             Event::Error(message) => {
@@ -1824,7 +1836,11 @@ impl App {
             Target::ChooseFile => self.open_dialog(window),
             Target::Page(url) => {
                 self.flash(window, &tr("Downloading page…"));
-                crate::fetch_page(window, url);
+                let source = web::Source {
+                    url,
+                    revoked: self.config.show_revoked,
+                };
+                crate::load_page(window, source, None);
             }
         }
     }
@@ -1870,19 +1886,25 @@ impl App {
     // ----- Web pages ----------------------------------------------------------
 
     /// The address the front tab was saved from, if it's a web page.
-    fn active_source(&self) -> Option<String> {
-        web::source_of(self.tabs.get(self.active?)?)
+    fn active(&self) -> Option<PathBuf> {
+        self.tabs.get(self.active?).cloned()
     }
 
-    /// A page downloaded and read: typeset it into the pages folder.
-    pub fn page_fetched(
+    /// Where the front tab was saved from, if it's a web page.
+    fn active_source(&self) -> Option<web::Source> {
+        web::source_of(&self.active()?)
+    }
+
+    /// A page downloaded (or read again from disk): keep it and typeset it
+    /// into the pages folder.
+    pub fn page_loaded(
         &mut self,
         window: &AppWindow,
-        url: String,
-        result: Result<Article, String>,
+        source: web::Source,
+        result: Result<(Article, Vec<u8>), String>,
     ) {
-        let article = match result {
-            Ok(article) => article,
+        let (article, html) = match result {
+            Ok(page) => page,
             Err(err) => {
                 self.flash(window, &trf("Couldn't download the page: {}", &[&err]));
                 return;
@@ -1892,12 +1914,12 @@ impl App {
             self.flash(window, &tr("No data folder to save the page in"));
             return;
         };
-        let (dir, pdf) = web::target(&pages, &url, &article.title);
-        if let Err(err) = fs::create_dir_all(&dir).and_then(|()| web::save_source(&dir, &url)) {
+        let (dir, pdf) = web::target(&pages, &source.url, &article.title);
+        if let Err(err) = web::save(&dir, &source, &html) {
             self.flash(window, &trf("Couldn't save the page: {}", &[&err]));
             return;
         }
-        self.viewer.typeset(article, url, pdf);
+        self.viewer.typeset(article, source.url, pdf);
     }
 
     // ----- Updates ------------------------------------------------------------

@@ -71,15 +71,41 @@ pub fn target(pages_dir: &Path, url: &str, title: &str) -> (PathBuf, PathBuf) {
     (dir, pdf)
 }
 
-/// Records where the page in `dir` came from.
-pub fn save_source(dir: &Path, url: &str) -> io::Result<()> {
-    fs::write(dir.join("source.txt"), format!("{url}\n"))
+/// A saved page: where it came from, and how its revoked
+/// (struck-through) text is shown.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Source {
+    pub url: String,
+    /// Shows revoked text struck through instead of hiding it.
+    pub revoked: bool,
 }
 
-/// The address a saved page came from, if `pdf` is one.
-pub fn source_of(pdf: &Path) -> Option<String> {
+/// Saves the downloaded page and where it came from next to its PDF.
+pub fn save(dir: &Path, source: &Source, html: &[u8]) -> io::Result<()> {
+    fs::create_dir_all(dir)?;
+    fs::write(dir.join(HTML), html)?;
+    let mode = if source.revoked {
+        "revoked = shown"
+    } else {
+        "revoked = hidden"
+    };
+    fs::write(dir.join("source.txt"), format!("{}\n{mode}\n", source.url))
+}
+
+const HTML: &str = "page.html";
+
+/// Where a saved page came from, if `pdf` is one.
+pub fn source_of(pdf: &Path) -> Option<Source> {
     let text = fs::read_to_string(pdf.parent()?.join("source.txt")).ok()?;
-    address(text.lines().next()?)
+    let mut lines = text.lines();
+    let url = address(lines.next()?)?;
+    let revoked = lines.any(|l| l.trim() == "revoked = shown");
+    Some(Source { url, revoked })
+}
+
+/// The downloaded page kept next to `pdf`, to typeset it again offline.
+pub fn saved_html(pdf: &Path) -> Option<Vec<u8>> {
+    fs::read(pdf.parent()?.join(HTML)).ok()
 }
 
 /// A file name from the page title, else from the address.
@@ -157,11 +183,14 @@ mod tests {
     fn source_round_trip() {
         let dir = std::env::temp_dir().join(format!("leme-web-test-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        save_source(&dir, "https://a.com/x").unwrap();
-        assert_eq!(
-            source_of(&dir.join("x.pdf")).as_deref(),
-            Some("https://a.com/x")
-        );
+        let source = Source {
+            url: "https://a.com/x".to_owned(),
+            revoked: true,
+        };
+        save(&dir, &source, b"<p>x</p>").unwrap();
+        let pdf = dir.join("x.pdf");
+        assert_eq!(source_of(&pdf), Some(source));
+        assert_eq!(saved_html(&pdf).as_deref(), Some(&b"<p>x</p>"[..]));
         fs::remove_dir_all(&dir).unwrap();
     }
 }

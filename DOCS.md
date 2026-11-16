@@ -53,6 +53,8 @@ Leme has a few tools for studying, for exams for example, that stay out of the w
 
 Paste a page's address in Add to session (`Ctrl+O`) and choose *Save page as document*: Leme downloads it once, keeps only the text (headings, paragraphs, bold, italic, struck-through), and saves it as a PDF you can highlight, annotate, and search like any other, offline. *Update page from the web* (palette) downloads it again into the same file. Pages that build their text with JavaScript or need a login can't be read this way; Leme says so instead of saving an empty page. Saved pages live in the data folder under `pages\`.
 
+Laws from planalto.gov.br get extra care: the letterhead and link lines above the law go, the law's name becomes the title, and its Títulos, Capítulos, and Seções become the outline. Revoked (struck-through) text is hidden; *Show or hide revoked text* (palette) switches the open law, without downloading it again, and `show_revoked = true` in `config.toml` shows it struck through by default.
+
 ## Customizing
 
 Everything lives in `%APPDATA%\leme\` (Settings → General → Data folder):

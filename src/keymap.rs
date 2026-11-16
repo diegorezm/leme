@@ -35,6 +35,7 @@ actions! {
     Open => "open", "Add to session…";
     ChooseFile => "choose-file", "Choose file…";
     UpdatePage => "update-page", "Update page from the web";
+    ToggleRevoked => "toggle-revoked", "Show or hide revoked text";
     CommandPalette => "command-palette", "Command palette";
     Search => "search", "Search in document";
     SearchSession => "search-session", "Search all tabs in session…";

@@ -80,25 +80,28 @@ pub fn check_for_update(window: &AppWindow, manual: bool) {
 /// its text with JavaScript, or an error page.
 const MIN_PAGE_WORDS: usize = 20;
 
-/// Downloads a web page and reads its text off the UI thread.
-pub fn fetch_page(window: &AppWindow, url: String) {
+/// Reads a web page's text off the UI thread: downloads it, or reuses
+/// `saved` (a page downloaded before), then hands it to the app.
+pub fn load_page(window: &AppWindow, source: web::Source, saved: Option<Vec<u8>>) {
     let weak = window.as_weak();
     std::thread::spawn(move || {
-        let result = web::fetch(&url)
-            .map_err(|err| err.to_string())
-            .and_then(|bytes| {
-                let article = html::extract(&html::decode(&bytes));
-                if article.word_count() < MIN_PAGE_WORDS {
-                    Err(i18n::tr(
-                        "the page has no readable text (it may need JavaScript)",
-                    ))
-                } else {
-                    Ok(article)
-                }
-            });
+        let bytes = match saved {
+            Some(bytes) => Ok(bytes),
+            None => web::fetch(&source.url).map_err(|err| err.to_string()),
+        };
+        let result = bytes.and_then(|bytes| {
+            let article = html::read_page(&bytes, &source.url, source.revoked);
+            if article.word_count() < MIN_PAGE_WORDS {
+                Err(i18n::tr(
+                    "the page has no readable text (it may need JavaScript)",
+                ))
+            } else {
+                Ok((article, bytes))
+            }
+        });
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(win) = weak.upgrade() {
-                with_app(|app| app.page_fetched(&win, url, result));
+                with_app(|app| app.page_loaded(&win, source, result));
             }
         });
     });

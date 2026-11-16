@@ -493,6 +493,154 @@ fn entities(text: &str) -> String {
     out.replace('\u{ad}', "")
 }
 
+// ----- Pages ----------------------------------------------------------------
+
+/// Reads a downloaded page: its text, cleaned up for the site it came
+/// from. Struck-through text (revoked law) is dropped unless `revoked`.
+pub fn read_page(bytes: &[u8], url: &str, revoked: bool) -> Article {
+    let mut article = extract(&decode(bytes));
+    if is_planalto(url) {
+        planalto(&mut article);
+    }
+    if !revoked {
+        drop_struck(&mut article);
+    }
+    article
+}
+
+fn is_planalto(url: &str) -> bool {
+    url.trim_start_matches("https://")
+        .split(['/', '?', '#'])
+        .next()
+        .is_some_and(|host| host == "planalto.gov.br" || host.ends_with(".planalto.gov.br"))
+}
+
+/// Drops struck-through runs, and blocks left empty.
+pub fn drop_struck(article: &mut Article) {
+    for block in &mut article.blocks {
+        block.runs.retain(|r| !r.strike);
+        let runs = std::mem::take(&mut block.runs);
+        block.runs = tidy(runs, block.kind == Kind::Code);
+    }
+    article.blocks.retain(|b| !b.runs.is_empty());
+}
+
+/// Divisions of a Brazilian law, outermost first, as they start a line.
+const DIVISIONS: [&str; 6] = ["PARTE", "LIVRO", "TÍTULO", "CAPÍTULO", "SEÇÃO", "SUBSEÇÃO"];
+
+/// The outline level of a division heading ("TÍTULO II", "Seção I",
+/// "CAPÍTULO ÚNICO"), 1 for the outermost.
+fn division(text: &str) -> Option<u8> {
+    let mut words = text.split_whitespace();
+    let first = words.next()?.to_uppercase();
+    let level = DIVISIONS.iter().position(|d| *d == first)?;
+    let number = words
+        .next()?
+        .trim_end_matches(['.', ':', '-', '–'])
+        .to_uppercase();
+    let numbered = number.chars().all(|c| "IVXLCDM".contains(c))
+        || number.chars().all(|c| c.is_ascii_digit())
+        || number == "ÚNICO"
+        || number == "ÚNICA"
+        || number == "GERAL"
+        || number == "ESPECIAL";
+    (numbered && text.chars().count() < 120).then(|| level as u8 + 1)
+}
+
+/// Names of laws that open a Planalto page, after its letterhead.
+const LAW_NAMES: [&str; 9] = [
+    "CONSTITUIÇÃO",
+    "LEI",
+    "DECRETO",
+    "CÓDIGO",
+    "MEDIDA PROVISÓRIA",
+    "EMENDA CONSTITUCIONAL",
+    "ATO",
+    "CONSOLIDAÇÃO",
+    "ESTATUTO",
+];
+
+/// Planalto pages: drop the letterhead and the "Vide…" links above the
+/// law, name the document after the law, and mark its divisions
+/// (Título, Capítulo, Seção) as headings, each with its name.
+fn planalto(article: &mut Article) {
+    let blocks = std::mem::take(&mut article.blocks);
+    let start = blocks.iter().take(40).position(|b| {
+        let text = b.text().to_uppercase();
+        LAW_NAMES.iter().any(|n| text.starts_with(n)) && text.chars().count() < 200
+    });
+    let mut blocks = blocks.into_iter();
+    if let Some(start) = start {
+        let law = blocks.nth(start).map(|b| b.text()).unwrap_or_default();
+        article.title = law.clone();
+        article.blocks.push(Block {
+            kind: Kind::Heading(1),
+            runs: vec![Run {
+                text: law,
+                bold: true,
+                ..Run::default()
+            }],
+        });
+    }
+    let mut header = start.is_some();
+    let mut pending: Option<(u8, String)> = None;
+    for block in blocks {
+        let text = block.text();
+        if header {
+            // Short lines between the law's name and its text are links:
+            // "Vide…", "Texto compilado", "Mensagem de veto", indexes.
+            let body = text.chars().count() >= 100
+                || text.starts_with("Art.")
+                || text.to_uppercase() == "PREÂMBULO"
+                || division(&text).is_some();
+            if !body {
+                continue;
+            }
+            header = false;
+        }
+        if let Some((level, name)) = pending.take() {
+            // The line after "TÍTULO I" is its name, unless it's text.
+            let is_name = text.chars().count() < 120
+                && !text.starts_with("Art.")
+                && division(&text).is_none()
+                && !block.runs.iter().all(|r| r.strike);
+            let heading = if is_name {
+                format!("{name} – {text}")
+            } else {
+                name
+            };
+            article.blocks.push(heading_block(level, heading));
+            if is_name {
+                continue;
+            }
+        }
+        if let Some(level) = division(&text) {
+            if block.runs.iter().all(|r| r.strike) {
+                article.blocks.push(block);
+            } else {
+                pending = Some((level, text));
+            }
+            continue;
+        }
+        article.blocks.push(block);
+    }
+    if let Some((level, name)) = pending {
+        article.blocks.push(heading_block(level, name));
+    }
+}
+
+/// Division headings sit below the law's title (level 1).
+fn heading_block(level: u8, text: String) -> Block {
+    Block {
+        kind: Kind::Heading((level + 1).min(6)),
+        runs: vec![Run {
+            text,
+            bold: true,
+            ..Run::default()
+        }],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -571,5 +719,54 @@ mod tests {
         assert!(a.blocks[0].text().starts_with("a < b bold both"));
         assert_eq!(extract("<p>x").blocks.len(), 1);
         assert_eq!(extract("").blocks.len(), 0);
+    }
+
+    #[test]
+    fn divisions() {
+        assert_eq!(division("TÍTULO II"), Some(3));
+        assert_eq!(division("Seção I"), Some(5));
+        assert_eq!(division("CAPÍTULO ÚNICO"), Some(4));
+        assert_eq!(division("Título VIII - Da Ordem Social"), Some(3));
+        assert_eq!(division("Títulos de crédito são documentos"), None);
+        assert_eq!(division("Capítulo seguinte trata"), None);
+    }
+
+    #[test]
+    fn planalto_pages() {
+        let page = "<head><title>L8112</title></head>
+            <p>Presidência da República</p><p>Casa Civil</p>
+            <p>LEI Nº 8.112, DE 11 DE DEZEMBRO DE 1990</p>
+            <p>Mensagem de veto</p><p>Texto compilado</p>
+            <p>Dispõe sobre o regime jurídico dos servidores públicos civis da União, das autarquias e das fundações públicas federais.</p>
+            <p>TÍTULO I</p><p>Capítulo Único</p><p>Das Disposições Preliminares</p>
+            <p>Art. 1º Esta Lei institui o regime.</p>
+            <p><strike>Art. 2º Revogado.</strike></p>
+            <p>Art. 3º Cargo <strike>antigo</strike> é o conjunto.</p>";
+        let hidden = read_page(
+            page.as_bytes(),
+            "https://www.planalto.gov.br/ccivil_03/leis/l8112cons.htm",
+            false,
+        );
+        assert_eq!(hidden.title, "LEI Nº 8.112, DE 11 DE DEZEMBRO DE 1990");
+        let texts: Vec<String> = hidden.blocks.iter().map(Block::text).collect();
+        assert_eq!(
+            texts,
+            [
+                "LEI Nº 8.112, DE 11 DE DEZEMBRO DE 1990",
+                "Dispõe sobre o regime jurídico dos servidores públicos civis da União, das autarquias e das fundações públicas federais.",
+                "TÍTULO I",
+                "Capítulo Único – Das Disposições Preliminares",
+                "Art. 1º Esta Lei institui o regime.",
+                "Art. 3º Cargo é o conjunto.",
+            ]
+        );
+        assert_eq!(hidden.blocks[2].kind, Kind::Heading(4));
+        assert_eq!(hidden.blocks[3].kind, Kind::Heading(5));
+
+        let shown = read_page(page.as_bytes(), "https://www.planalto.gov.br/x", true);
+        assert!(shown.blocks.iter().any(|b| b.text() == "Art. 2º Revogado."));
+        // Other sites keep their letterhead.
+        let other = read_page(page.as_bytes(), "https://example.com/x", false);
+        assert_eq!(other.blocks[0].text(), "Presidência da República");
     }
 }
