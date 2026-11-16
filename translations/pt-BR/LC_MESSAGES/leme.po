@@ -365,11 +365,7 @@ msgstr "Abrir"
 msgid "Open config.toml"
 msgstr "Abrir config.toml"
 
-msgid "Open file"
-msgstr "Abrir arquivo"
 
-msgid "Open file…"
-msgstr "Abrir arquivo…"
 
 msgid "Open folder"
 msgstr "Abrir pasta"
@@ -692,8 +688,6 @@ msgstr "navegar"
 msgid "next"
 msgstr "próxima"
 
-msgid "open a PDF"
-msgstr "abrir um PDF"
 
 msgid "or drop a file here"
 msgstr "ou solte um arquivo aqui"
@@ -748,3 +742,18 @@ msgstr "{} abas"
 
 msgid "{} · current"
 msgstr "{} · atual"
+
+msgid "Add to session…"
+msgstr "Adicionar à sessão…"
+
+msgid "Add to session"
+msgstr "Adicionar à sessão"
+
+msgid "Choose file…"
+msgstr "Escolher arquivo…"
+
+msgid "Type a path or search recent files…"
+msgstr "Digite um caminho ou busque nos recentes…"
+
+msgid "add to session"
+msgstr "adicionar à sessão"

@@ -30,6 +30,7 @@ const PALETTE_LIMIT: usize = 12;
 /// Entries of one kind (themes, commands, tabs) the palette lists at once.
 const PALETTE_GROUP_LIMIT: usize = 5;
 const PALETTE_PLACEHOLDER: &str = "Search commands, tabs, files, themes, or type a page number…";
+const ADD_PLACEHOLDER: &str = "Type a path or search recent files…";
 /// Shades offered for highlight colors in Settings; any hex works too.
 const HIGHLIGHT_PRESETS: [&str; 10] = [
     "#d9a441", "#d4664d", "#68a48d", "#6f93ba", "#c27696", "#d98a2b", "#9a86c4", "#5fa3a8",
@@ -123,6 +124,9 @@ pub struct App {
     open_at: Option<(PathBuf, usize, String)>,
 
     palette_entries: Vec<Entry>,
+    /// The palette is the "Add to session" panel: no page numbers, and a
+    /// typed path is offered.
+    adding: bool,
     palette_shown: Vec<Entry>,
     palette_selected: usize,
     palette_items: Rc<VecModel<PaletteItem>>,
@@ -176,6 +180,7 @@ impl App {
             session_timer: slint::Timer::default(),
             open_at: None,
             palette_entries: Vec::new(),
+            adding: false,
             palette_shown: Vec::new(),
             palette_selected: 0,
             palette_items,
@@ -637,7 +642,8 @@ impl App {
 
     pub fn run(&mut self, window: &AppWindow, action: Action) {
         match action {
-            Action::Open => self.open_dialog(window),
+            Action::Open => self.open_add_panel(window),
+            Action::ChooseFile => self.open_dialog(window),
             Action::CommandPalette => self.open_palette(window),
             Action::Search if self.viewer.page_count() > 0 => self.open_search(window, false),
             Action::SearchSession => self.open_search(window, true),
@@ -1038,6 +1044,8 @@ impl App {
             detail: String::new(),
             keys: self.key_hint(Action::NewSession),
         });
+        self.adding = false;
+        window.set_palette_placeholder(tr(PALETTE_PLACEHOLDER).into());
         window.set_palette_query("".into());
         self.palette_edited(window, "");
         // Start on the session after the current one, like the tmux chooser.
@@ -1647,6 +1655,52 @@ impl App {
 
     // ----- Command palette -------------------------------------------------
 
+    /// The palette as a picker of what to add to the session: a file from
+    /// disk, a typed path, or a recent document from any session.
+    fn open_add_panel(&mut self, window: &AppWindow) {
+        let mut entries = vec![Entry {
+            target: Target::ChooseFile,
+            title: tr("Choose file…"),
+            detail: String::new(),
+            keys: self.key_hint(Action::ChooseFile),
+        }];
+        entries.extend(self.recent_entries());
+        self.show_palette(window, entries, true);
+    }
+
+    fn recent_entries(&self) -> Vec<Entry> {
+        self.viewer
+            .store
+            .recent
+            .iter()
+            .filter(|r| !self.tabs.iter().any(|t| same_file(t, &r.path)))
+            .map(|r| Entry {
+                target: Target::Recent(r.path.clone()),
+                title: file_name(&r.path),
+                detail: r
+                    .path
+                    .parent()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default(),
+                keys: String::new(),
+            })
+            .collect()
+    }
+
+    fn show_palette(&mut self, window: &AppWindow, entries: Vec<Entry>, adding: bool) {
+        self.palette_entries = entries;
+        self.adding = adding;
+        let placeholder = if adding {
+            ADD_PLACEHOLDER
+        } else {
+            PALETTE_PLACEHOLDER
+        };
+        window.set_palette_placeholder(tr(placeholder).into());
+        window.set_palette_query("".into());
+        self.palette_edited(window, "");
+        self.set_overlay(window, "palette");
+    }
+
     fn open_palette(&mut self, window: &AppWindow) {
         let mut entries: Vec<Entry> = Vec::new();
         for (i, path) in self.tabs.iter().enumerate() {
@@ -1682,31 +1736,26 @@ impl App {
                 keys: String::new(),
             });
         }
-        for recent in &self.viewer.store.recent {
-            if self.tabs.iter().any(|t| same_file(t, &recent.path)) {
-                continue;
-            }
-            entries.push(Entry {
-                target: Target::Recent(recent.path.clone()),
-                title: file_name(&recent.path),
-                detail: recent
-                    .path
-                    .parent()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default(),
-                keys: String::new(),
-            });
-        }
-        self.palette_entries = entries;
-        window.set_palette_query("".into());
-        self.palette_edited(window, "");
-        self.set_overlay(window, "palette");
+        entries.extend(self.recent_entries());
+        self.show_palette(window, entries, false);
     }
 
     pub fn palette_edited(&mut self, window: &AppWindow, query: &str) {
         let ranked = palette::filter(&self.palette_entries, query, usize::MAX);
         let mut shown = palette::grouped(ranked, PALETTE_GROUP_LIMIT, PALETTE_LIMIT);
-        if let Some(page) = palette::page_query(query) {
+        if self.adding {
+            if let Some(path) = palette::typed_path(query).filter(|p| p.is_file()) {
+                shown.insert(
+                    0,
+                    Entry {
+                        title: file_name(&path),
+                        detail: tr("Add to session"),
+                        target: Target::Recent(path),
+                        keys: String::new(),
+                    },
+                );
+            }
+        } else if let Some(page) = palette::page_query(query) {
             if page <= self.viewer.page_count() {
                 shown.insert(
                     0,
@@ -1747,6 +1796,7 @@ impl App {
             Target::GoToPage(page) => self.viewer.go_to_page(window, page),
             Target::Theme(name) => self.setting(window, "theme", &name),
             Target::Session(i) => self.switch_session(window, i),
+            Target::ChooseFile => self.open_dialog(window),
         }
     }
 

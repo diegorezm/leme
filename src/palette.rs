@@ -12,6 +12,8 @@ pub enum Target {
     GoToPage(usize),
     Theme(String),
     Session(usize),
+    /// The native file dialog.
+    ChooseFile,
 }
 
 /// What the palette lists an entry under.
@@ -41,7 +43,7 @@ impl Group {
 impl Target {
     pub fn group(&self) -> Group {
         match self {
-            Target::GoToPage(_) => Group::Page,
+            Target::GoToPage(_) | Target::ChooseFile => Group::Page,
             Target::Theme(_) => Group::Themes,
             Target::Command(_) => Group::Commands,
             Target::Tab(_) | Target::Recent(_) => Group::Tabs,
@@ -58,6 +60,19 @@ pub struct Entry {
     pub detail: String,
     /// Shortcut shown on the right.
     pub keys: String,
+}
+
+/// A PDF path typed or pasted into the palette, without the quotes a file
+/// manager's "copy as path" adds.
+pub fn typed_path(query: &str) -> Option<PathBuf> {
+    let path = query.trim().trim_matches('"').trim();
+    let pdf = path
+        .rsplit('.')
+        .next()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"));
+    let absolute =
+        path.starts_with('/') || path.starts_with("\\\\") || path.as_bytes().get(1) == Some(&b':');
+    (pdf && absolute && path.len() > 4).then(|| PathBuf::from(path))
 }
 
 /// Fuzzy subsequence score: higher is better, `None` if `query` doesn't
@@ -214,5 +229,20 @@ mod tests {
         assert_eq!(page_query(":7"), Some(7));
         assert_eq!(page_query("0"), None);
         assert_eq!(page_query("open"), None);
+    }
+
+    #[test]
+    fn typed_paths() {
+        assert_eq!(
+            typed_path(r#" "C:\Docs\Lei 8112.PDF" "#),
+            Some(PathBuf::from(r"C:\Docs\Lei 8112.PDF"))
+        );
+        assert_eq!(
+            typed_path("/home/a/b.pdf"),
+            Some(PathBuf::from("/home/a/b.pdf"))
+        );
+        assert_eq!(typed_path("b.pdf"), None);
+        assert_eq!(typed_path("C:\\notes.txt"), None);
+        assert_eq!(typed_path("mazza"), None);
     }
 }

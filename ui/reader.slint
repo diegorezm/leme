@@ -596,6 +596,7 @@ export component StartScreen inherits Rectangle {
     in property <string> open-keys;
     in property <string> palette-keys;
     callback open-subject(int);
+    callback add();
     callback open-recent(int);
     callback open-session(int);
     callback new-session();
@@ -728,8 +729,45 @@ export component StartScreen inherits Rectangle {
                             }
                         }
 
+                        // Add a PDF to the session: opens the add panel.
+                        Rectangle {
+                            height: 40px;
+                            border-radius: Theme.radius;
+                            background: add-touch.has-hover ? Theme.hover : transparent;
+
+                            add-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.add();
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 10px;
+
+                                Icon {
+                                    y: (parent.height - self.height) / 2;
+                                    name: "plus";
+                                    color: add-touch.has-hover ? Theme.text : Theme.text-muted;
+                                }
+                                Text {
+                                    text: @tr("Add to session");
+                                    color: add-touch.has-hover ? Theme.text : Theme.text-muted;
+                                    font-size: Theme.font-size;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                if root.open-keys != "": Kbd {
+                                    y: (parent.height - self.height) / 2;
+                                    text: root.open-keys;
+                                }
+                            }
+                        }
+
                         if root.recent.length > 0: Rectangle {
-                            height: root.subjects.length > 0 ? 44px : 24px;
+                            height: 44px;
 
                             Label {
                                 x: 12px;
@@ -879,7 +917,7 @@ export component StartScreen inherits Rectangle {
                 text: root.open-keys;
             }
             Text {
-                text: @tr("open a PDF");
+                text: @tr("add to session");
                 color: Theme.text-muted;
                 font-size: Theme.font-size-small;
                 vertical-alignment: center;

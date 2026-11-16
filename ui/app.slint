@@ -400,7 +400,7 @@ export component AppWindow inherits Window {
                     QuietButton {
                         y: (parent.height - self.height) / 2;
                         icon: "plus";
-                        tip: @tr("Open file");
+                        tip: @tr("Add to session");
                         tip-keys: root.header-keys[12];
                         clicked => {
                             root.header-action("open");
@@ -738,6 +738,9 @@ export component AppWindow inherits Window {
                         palette-keys: root.header-keys[5];
                         open-subject(i) => {
                             root.open-subject(i);
+                        }
+                        add => {
+                            root.header-action("open");
                         }
                         open-recent(i) => {
                             root.open-recent(i);
