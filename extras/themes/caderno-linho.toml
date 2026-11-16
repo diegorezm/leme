@@ -1,0 +1,16 @@
+# Caderno, linen sheet: graphite on pale paper, a terracotta stamp.
+name = "Caderno Linho"
+dark = false
+
+background = "#efe6d2"
+surface = "#e7dcc4"
+raised = "#f6eedb"
+border = "#d6c8ab"
+text = "#2f2b28"
+text_muted = "#6d6258"
+accent = "#9a4a2f"
+page = "#fbf8ef"
+hover = "#2f2b2810"
+selection = "#c8a67866"
+match = "#f2c23066"
+match_current = "#ec7a32aa"

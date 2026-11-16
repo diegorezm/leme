@@ -1,0 +1,16 @@
+# Caderno, night sheet: a harbour with a single lamp lit.
+name = "Caderno"
+dark = true
+
+background = "#1c3a3b"
+surface = "#183233"
+raised = "#25494a"
+border = "#2f5556"
+text = "#efe6cf"
+text_muted = "#b9c2ae"
+accent = "#f0aa3c"
+page = "#efe6cf"
+hover = "#efe6cf10"
+selection = "#f0aa3c45"
+match = "#f2c25a55"
+match_current = "#f0aa3caa"
