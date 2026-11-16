@@ -1,0 +1,19 @@
+# Leme
+
+> Leme is a free, open-source (MIT), local-first PDF reader for Windows (and Linux) built for studying: long reading sessions of course material, exam prep (concursos), papers and manuals. Written in Rust with Slint and PDFium, no browser engine, no telemetry, no account, no cloud. Interface in Brazilian Portuguese or English.
+
+Key features:
+- Highlights with named colors (important, question, definition, example, review), keys 1–5; notes attached to the text.
+- Annotations stored outside the PDF; the PDF is never modified.
+- Per-chapter progress, study timer, and reading position remembered per document.
+- Search in the current document and across every document in a session.
+- Export to Anki (TSV), CSV and Markdown with properties and backlinks (Obsidian).
+- Tab sessions per subject (tmux-like), libraries, web pages saved as PDFs.
+- Keyboard-first: command palette (Ctrl+K), optional vim keys, rebindable keys; dark and light themes defined in TOML.
+- Fast: opens thousand-page PDFs instantly, small binary, low memory.
+
+## Links
+- [Home page (pt-BR)](https://diegorezm.github.io/leme/): overview and screenshots
+- [Documentation](https://diegorezm.github.io/leme/DOCS.md): full user guide (shortcuts, config.toml, themes, export)
+- [Download (latest release)](https://github.com/diegorezm/leme/releases/latest)
+- [Source code](https://github.com/diegorezm/leme)
