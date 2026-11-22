@@ -39,6 +39,8 @@ Leme is a calm, keyboard-first reading environment: the page fills the screen, a
 
 Download the installer or the portable `.zip` from [Releases](https://github.com/diegorezm/leme/releases/latest). Setup, shortcuts, customization, and building from source are in [DOCS.md](DOCS.md).
 
+> **Note:** The Windows executable is not code-signed, so Windows SmartScreen will show a warning (*"Windows protected your PC"*) the first time you run it. Click **More info** → **Run anyway** to proceed, or build from source.
+
 ## Contributing
 
 Read [AGENTS.md](AGENTS.md) for the product philosophy, architecture, and workflow, and [DOCS.md](DOCS.md#building-from-source) to build and test.
