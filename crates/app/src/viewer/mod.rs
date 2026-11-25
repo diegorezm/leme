@@ -199,6 +199,8 @@ pub struct Viewer {
     side_pages: Vec<usize>,
     /// The outline entry of each side item, in the outline panel.
     side_outline: Vec<usize>,
+    /// Row in `side_items` currently highlighted as active in the outline.
+    current_outline_row: Option<usize>,
     /// What each highlight color means, in `annotations::COLORS` order.
     color_names: Vec<String>,
     /// The shade of each highlight color, same order.
@@ -274,6 +276,7 @@ impl Viewer {
             side_items,
             side_pages: Vec::new(),
             side_outline: Vec::new(),
+            current_outline_row: None,
             color_names: annotations::COLORS
                 .iter()
                 .map(|(name, _)| (*name).to_owned())

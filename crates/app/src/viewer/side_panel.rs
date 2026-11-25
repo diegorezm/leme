@@ -19,23 +19,38 @@ impl Viewer {
 
     pub(super) fn update_side_items(&mut self) {
         self.side_outline.clear();
+        self.current_outline_row = None;
         let (items, pages): (Vec<SideItem>, Vec<usize>) = match self.side_panel {
             SidePanel::Thumbs => Default::default(),
             SidePanel::Outline => {
                 let current = self.current_section();
-                let annotations = &self.annotations;
+                let levels: HashMap<(usize, &str), u8> = self
+                    .annotations
+                    .sections
+                    .iter()
+                    .map(|s| ((s.page, s.title.as_str()), s.level))
+                    .collect();
                 let side_outline = &mut self.side_outline;
+                let current_row = &mut self.current_outline_row;
                 self.outline
                     .iter()
                     .enumerate()
                     .filter_map(|(i, item)| {
                         let page = item.page?;
+                        let is_current = current == Some(i);
+                        if is_current {
+                            *current_row = Some(side_outline.len());
+                        }
                         side_outline.push(i);
+                        let status = levels
+                            .get(&(page, item.title.as_str()))
+                            .copied()
+                            .unwrap_or(0);
                         let row = SideItem {
                             title: item.title.as_str().into(),
                             depth: ui_int(item.depth.min(6)),
-                            current: current == Some(i),
-                            status: i32::from(annotations.level(page, &item.title)),
+                            current: is_current,
+                            status: i32::from(status),
                             ..Default::default()
                         };
                         Some((row, page))
@@ -95,6 +110,29 @@ impl Viewer {
         self.side_items.set_vec(items);
         self.side_pages = pages;
         self.update_note_filters();
+    }
+
+    /// Moves the active outline highlight without rebuilding the whole list.
+    pub(super) fn update_current_outline_row(&mut self) {
+        let next = self
+            .current_section()
+            .and_then(|idx| self.side_outline.iter().position(|&o| o == idx));
+        if next == self.current_outline_row {
+            return;
+        }
+        if let Some(old) = self.current_outline_row {
+            if let Some(mut row) = self.side_items.row_data(old) {
+                row.current = false;
+                self.side_items.set_row_data(old, row);
+            }
+        }
+        if let Some(new) = next {
+            if let Some(mut row) = self.side_items.row_data(new) {
+                row.current = true;
+                self.side_items.set_row_data(new, row);
+            }
+        }
+        self.current_outline_row = next;
     }
 
     /// The colors used in this document, with counts, for the notes filter.

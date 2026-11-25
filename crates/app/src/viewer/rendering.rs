@@ -131,7 +131,7 @@ impl Viewer {
             self.update_page_label(window);
             self.update_section_title(window);
             if self.side_panel == SidePanel::Outline {
-                self.update_side_items();
+                self.update_current_outline_row();
             }
             self.reveal_thumb(window, current);
             // Saved soon after every page change so the position survives
