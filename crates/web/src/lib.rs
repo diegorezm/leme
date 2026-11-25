@@ -69,7 +69,7 @@ pub fn saved(pages_dir: &Path, url: &str) -> Option<PathBuf> {
 /// Where the page from `url` is kept: its folder, and the PDF in it. An
 /// existing PDF keeps its name; a new one is named after `title`.
 pub fn target(pages_dir: &Path, url: &str, title: &str) -> (PathBuf, PathBuf) {
-    let dir = pages_dir.join(format!("{:016x}", fnv1a(url)));
+    let dir = pages_dir.join(format!("{:016x}", domain::config::fnv1a(url.as_bytes())));
     let existing = fs::read_dir(&dir).ok().and_then(|entries| {
         entries
             .flatten()
@@ -150,13 +150,6 @@ fn file_name(title: &str, url: &str) -> String {
     }
 }
 
-/// Stable across builds, unlike std's hasher.
-fn fnv1a(text: &str) -> u64 {
-    text.bytes().fold(0xcbf29ce484222325, |hash, b| {
-        (hash ^ u64::from(b)).wrapping_mul(0x100000001b3)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,8 +183,14 @@ mod tests {
         let dir = std::env::temp_dir().join("leme-web-test-none");
         let (folder, pdf) = target(&dir, "https://a.com", "Título");
         assert_eq!(pdf, folder.join("Título.pdf"));
-        assert_eq!(fnv1a("https://a.com"), fnv1a("https://a.com"));
-        assert_ne!(fnv1a("https://a.com"), fnv1a("https://b.com"));
+        assert_eq!(
+            domain::config::fnv1a(b"https://a.com"),
+            domain::config::fnv1a(b"https://a.com")
+        );
+        assert_ne!(
+            domain::config::fnv1a(b"https://a.com"),
+            domain::config::fnv1a(b"https://b.com")
+        );
     }
 
     #[test]

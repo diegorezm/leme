@@ -134,7 +134,18 @@ impl App {
                 }
             },
             Event::Relocated { path, found } => {
-                let mut annotations = Annotations::load(&path);
+                let (mut annotations, problem) = Annotations::load_checked(&path);
+                if let Some(err) = problem {
+                    self.flash(
+                        window,
+                        &trf(
+                            "Couldn't read notes ({}); changes won't overwrite the file",
+                            &[&err],
+                        ),
+                    );
+                    self.reopen(window, path);
+                    return;
+                }
                 let lost = annotations.relocate(&found);
                 if let Err(err) = annotations.save(&path) {
                     self.flash(window, &trf("Couldn't save notes: {}", &[&err]));

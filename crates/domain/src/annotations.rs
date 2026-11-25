@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{data_dir, write_atomic};
+use crate::config::{data_dir, fnv1a, write_atomic};
 use crate::geometry::NormRect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,10 +95,25 @@ pub struct Annotations {
 
 impl Annotations {
     pub fn load(doc: &Path) -> Self {
-        file_for(doc)
-            .and_then(|path| fs::read_to_string(path).ok())
-            .and_then(|text| toml::from_str(&text).ok())
-            .unwrap_or_default()
+        Self::load_checked(doc).0
+    }
+
+    pub fn load_checked(doc: &Path) -> (Self, Option<String>) {
+        let Some(path) = file_for(doc) else {
+            return (Self::default(), None);
+        };
+        match fs::read_to_string(&path) {
+            Ok(text) => Self::parse_checked(&text),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => (Self::default(), None),
+            Err(err) => (Self::default(), Some(err.to_string())),
+        }
+    }
+
+    pub fn parse_checked(text: &str) -> (Self, Option<String>) {
+        match toml::from_str(text) {
+            Ok(annotations) => (annotations, None),
+            Err(err) => (Self::default(), Some(err.message().to_owned())),
+        }
     }
 
     pub fn save(&self, doc: &Path) -> io::Result<()> {
@@ -332,13 +347,6 @@ fn file_for(doc: &Path) -> Option<PathBuf> {
     )
 }
 
-/// FNV-1a: stable across Rust versions, unlike `DefaultHasher`.
-fn fnv1a(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &b| {
-        (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
-    })
-}
-
 /// `YYYY-MM-DD` (UTC) for Unix seconds.
 pub fn date(unix: u64) -> String {
     // Howard Hinnant's civil-from-days algorithm.
@@ -485,8 +493,11 @@ mod tests {
             5,
         );
         let text = toml::to_string(&a).unwrap();
-        let back: Annotations = toml::from_str(&text).unwrap();
+        let (back, problem) = Annotations::parse_checked(&text);
+        assert!(problem.is_none());
         assert_eq!(back.items, a.items);
+        let (broken, problem) = Annotations::parse_checked("not valid toml [");
+        assert!(broken.items.is_empty() && problem.is_some());
         assert_eq!(back.sections, a.sections);
     }
 

@@ -209,16 +209,28 @@ impl Viewer {
         self.layout = Layout::default();
         self.thumb_layout = Layout::default();
         self.reset_document_state(window);
-        self.annotations = self
+        let (annotations, notes_problem) = self
             .path
             .as_deref()
-            .map(Annotations::load)
+            .map(Annotations::load_checked)
             .unwrap_or_default();
+        self.annotations = annotations;
+        self.annotations_broken = notes_problem.is_some();
 
         window.set_document_title(self.title.clone().into());
         window.set_page_count(ui_int(self.page_sizes.len()));
         window.set_current_page(0);
-        window.set_status("".into());
+        window.set_status(
+            notes_problem
+                .map(|err| {
+                    trf(
+                        "Couldn't read notes ({}); changes won't overwrite the file",
+                        &[&err],
+                    )
+                })
+                .unwrap_or_default()
+                .into(),
+        );
         window.set_viewport_x(0.0);
         window.set_viewport_y(0.0);
         window.set_thumbs_viewport_y(0.0);
@@ -257,6 +269,7 @@ impl Viewer {
         self.popup = Popup::None;
         self.note_target = None;
         self.annotations = Annotations::default();
+        self.annotations_broken = false;
         self.history.clear();
         // A filter set for one document would hide colors in the next.
         self.hidden_colors.clear();

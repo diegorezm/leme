@@ -177,6 +177,8 @@ pub struct Viewer {
     next_search_id: u64,
 
     annotations: Annotations,
+    /// True if the annotation file on disk failed to parse; avoids overwriting it.
+    annotations_broken: bool,
     history: History,
     selection: Option<Selection>,
     drag: Option<Drag>,
@@ -262,6 +264,7 @@ impl Viewer {
             search: None,
             next_search_id: 0,
             annotations: Annotations::default(),
+            annotations_broken: false,
             history: History::default(),
             selection: None,
             drag: None,

@@ -321,6 +321,10 @@ impl Viewer {
         let Some(path) = self.path.clone() else {
             return;
         };
+        if self.annotations_broken {
+            window.set_status(tr("Notes file has a syntax error; fix it before saving").into());
+            return;
+        }
         self.annotations.document = path.display().to_string();
         if let Err(err) = self.annotations.save(&path) {
             window.set_status(trf("Couldn't save notes: {}", &[&err]).into());

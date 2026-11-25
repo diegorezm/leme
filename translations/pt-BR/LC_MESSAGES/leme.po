@@ -961,3 +961,9 @@ msgstr "PNG, JPG, SVG ou WebP, mostrada no card e na tela inicial."
 
 msgid "Leme is up to date"
 msgstr "O Leme já está atualizado"
+
+msgid "Couldn't read notes ({}); changes won't overwrite the file"
+msgstr "Não foi possível ler as notas ({}); alterações não sobrescreverão o arquivo"
+
+msgid "Notes file has a syntax error; fix it before saving"
+msgstr "O arquivo de notas tem um erro de sintaxe; corrija-o antes de salvar"

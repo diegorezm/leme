@@ -513,6 +513,13 @@ pub fn themes_dir() -> Option<PathBuf> {
     Some(data_dir()?.join("themes"))
 }
 
+/// FNV-1a: stable across Rust versions, unlike `DefaultHasher`.
+pub fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &b| {
+        (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
 /// Write then rename, so a crash never leaves a half-written file.
 pub fn write_atomic(path: &std::path::Path, contents: &str) -> io::Result<()> {
     if let Some(dir) = path.parent() {
