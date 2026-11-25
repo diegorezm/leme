@@ -117,43 +117,59 @@ impl App {
         if self.session_hits.len() >= MAX_SESSION_HITS {
             return;
         }
-        self.session_hits
-            .push((path, page, crate::viewer::unhyphenated(&snippet), count));
-        self.update_search_hits();
+        let clean = crate::viewer::unhyphenated(&snippet);
+        let same_doc = self.session_hits.last().is_some_and(|(p, ..)| *p == path);
+        if same_doc {
+            let total: usize = self
+                .session_hits
+                .iter()
+                .rev()
+                .take_while(|(p, ..)| *p == path)
+                .map(|(.., c)| *c)
+                .sum::<usize>()
+                + count;
+            if let Some(hdr_row) = self.hit_rows.iter().rposition(Option::is_none) {
+                if let Some(mut row) = self.search_hits.row_data(hdr_row) {
+                    row.page = total.to_string().into();
+                    self.search_hits.set_row_data(hdr_row, row);
+                }
+            }
+        } else {
+            self.search_hits.push(SearchHit {
+                header: true,
+                title: file_name(&path).into(),
+                page: count.to_string().into(),
+                current: false,
+            });
+            self.hit_rows.push(None);
+        }
+        let hit_index = self.session_hits.len();
+        self.session_hits.push((path, page, clean.clone(), count));
+        self.search_hits.push(SearchHit {
+            header: false,
+            title: clean.into(),
+            page: trf("p. {}", &[&(page + 1)]).into(),
+            current: false,
+        });
+        self.hit_rows.push(Some(hit_index));
     }
 
-    /// Lists the session hits under their documents, each heading with
-    /// the document's total matches.
-    pub(super) fn update_search_hits(&mut self) {
-        let mut rows: Vec<SearchHit> = Vec::new();
-        self.hit_rows.clear();
-        let mut document: Option<&Path> = None;
-        for (i, (path, page, snippet, _)) in self.session_hits.iter().enumerate() {
-            if document != Some(path.as_path()) {
-                document = Some(path.as_path());
-                let total: usize = self
-                    .session_hits
-                    .iter()
-                    .filter(|(p, ..)| p == path)
-                    .map(|(.., count)| *count)
-                    .sum();
-                rows.push(SearchHit {
-                    header: true,
-                    title: file_name(path).into(),
-                    page: total.to_string().into(),
-                    current: false,
-                });
-                self.hit_rows.push(None);
+    /// Updates the selected row highlight in the session search list.
+    pub(super) fn select_search_hit(&self, prev: Option<usize>, next: usize) {
+        if let Some(prev) = prev {
+            if let Some(row_idx) = self.hit_rows.iter().position(|r| *r == Some(prev)) {
+                if let Some(mut row) = self.search_hits.row_data(row_idx) {
+                    row.current = false;
+                    self.search_hits.set_row_data(row_idx, row);
+                }
             }
-            rows.push(SearchHit {
-                header: false,
-                title: snippet.as_str().into(),
-                page: trf("p. {}", &[&(page + 1)]).into(),
-                current: self.session_selected == Some(i),
-            });
-            self.hit_rows.push(Some(i));
         }
-        self.search_hits.set_vec(rows);
+        if let Some(row_idx) = self.hit_rows.iter().position(|r| *r == Some(next)) {
+            if let Some(mut row) = self.search_hits.row_data(row_idx) {
+                row.current = true;
+                self.search_hits.set_row_data(row_idx, row);
+            }
+        }
     }
 
     /// Shows a page found by the session search, opening its tab first.
@@ -161,8 +177,8 @@ impl App {
         let Some((path, page, ..)) = self.session_hits.get(hit).cloned() else {
             return;
         };
-        self.session_selected = Some(hit);
-        self.update_search_hits();
+        let prev = self.session_selected.replace(hit);
+        self.select_search_hit(prev, hit);
         let query = window.get_search_text().trim().to_owned();
         if self.viewer.is_showing(&path) && self.viewer.page_count() > 0 {
             self.viewer.go_to_page(window, page);

@@ -158,6 +158,15 @@ impl FileTexts {
         self.docs.back_mut().map(|(_, _, pages)| pages)
     }
 
+    /// Cached pages without re-checking disk metadata (for per-page steps
+    /// after `pages()` validated the file at document start).
+    pub(crate) fn pages_unchecked(&mut self, path: &Path) -> Option<&mut Vec<Option<String>>> {
+        self.docs
+            .iter_mut()
+            .rfind(|(p, _, _)| p == path)
+            .map(|(_, _, pages)| pages)
+    }
+
     pub(crate) fn insert(&mut self, path: &Path, page_count: usize) {
         self.docs.retain(|(p, _, _)| p != path);
         if self.docs.len() >= CACHED_FILE_TEXTS {

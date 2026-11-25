@@ -209,10 +209,7 @@ impl App {
             .find_map(|r| self.library_books.iter().position(|d| *d == r.path))
             .map_or(-1, ui_int);
 
-        let image = library
-            .image
-            .as_deref()
-            .and_then(|p| slint::Image::load_from_path(p).ok());
+        let image_path = library.image.clone();
         let study: u64 = library
             .documents
             .iter()
@@ -224,9 +221,10 @@ impl App {
         }
         window.set_library_name(library.name.as_str().into());
         window.set_library_icon(library.icon.as_str().into());
+        window.set_library_summary(summary.join(" · ").into());
+        let image = image_path.as_deref().and_then(|p| self.library_image(p));
         window.set_library_has_image(image.is_some());
         window.set_library_image(image.unwrap_or_default());
-        window.set_library_summary(summary.join(" · ").into());
         window.set_library_books(Rc::new(VecModel::from(cards)).into());
         window.set_library_hero(hero);
     }
@@ -519,17 +517,36 @@ impl App {
         }
     }
 
-    pub(super) fn update_libraries(&self, window: &AppWindow) {
+    pub(super) fn library_image(&mut self, path: &Path) -> Option<slint::Image> {
+        let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+        if let Some((stamp, image)) = self.library_images.get(path) {
+            if *stamp == modified {
+                return Some(image.clone());
+            }
+        }
+        let image = slint::Image::load_from_path(path).ok()?;
+        self.library_images
+            .insert(path.to_owned(), (modified, image.clone()));
+        Some(image)
+    }
+
+    pub(super) fn update_libraries(&mut self, window: &AppWindow) {
+        let images: Vec<Option<slint::Image>> = self
+            .libraries
+            .items
+            .iter()
+            .map(|l| l.image.clone())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|p| p.as_deref().and_then(|p| self.library_image(p)))
+            .collect();
         // Each cover image is decoded once, for the start screen and Settings.
         let (items, rows): (Vec<LibraryItem>, Vec<LibraryRow>) = self
             .libraries
             .items
             .iter()
-            .map(|l| {
-                let image = l
-                    .image
-                    .as_deref()
-                    .and_then(|p| slint::Image::load_from_path(p).ok());
+            .zip(images)
+            .map(|(l, image)| {
                 let documents: Vec<slint::SharedString> =
                     l.documents.iter().map(|d| file_name(d).into()).collect();
                 let item = LibraryItem {

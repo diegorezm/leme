@@ -22,26 +22,33 @@ pub(crate) fn fold(c: char) -> char {
 
 /// Matches of `query` (folded) in `text`, and the text around the first.
 pub(crate) fn find_in_text(text: &str, query: &[char]) -> Option<(usize, String)> {
-    let chars: Vec<char> = text.chars().collect();
-    let folded: Vec<char> = chars.iter().map(|&c| fold(c)).collect();
-    if query.is_empty() || folded.len() < query.len() {
+    if query.is_empty() {
         return None;
     }
-    let starts: Vec<usize> = (0..=folded.len() - query.len())
-        .filter(|&i| folded[i..i + query.len()] == *query)
-        .collect();
-    let first = *starts.first()?;
+    let folded: Vec<char> = text.chars().map(fold).collect();
+    if folded.len() < query.len() {
+        return None;
+    }
+    let mut first = None;
+    let mut count = 0;
+    for (i, window) in folded.windows(query.len()).enumerate() {
+        if window == query {
+            first.get_or_insert(i);
+            count += 1;
+        }
+    }
+    let first = first?;
     let from = first.saturating_sub(SNIPPET_CONTEXT);
-    let to = (first + query.len() + SNIPPET_CONTEXT).min(chars.len());
-    let snippet: String = chars[from..to].iter().collect();
+    let to = (first + query.len() + SNIPPET_CONTEXT).min(folded.len());
+    let snippet: String = text.chars().skip(from).take(to - from).collect();
     let mut snippet = snippet.split_whitespace().collect::<Vec<_>>().join(" ");
     if from > 0 {
         snippet.insert(0, '…');
     }
-    if to < chars.len() {
+    if to < folded.len() {
         snippet.push('…');
     }
-    Some((starts.len(), snippet))
+    Some((count, snippet))
 }
 
 /// Searches one page of a file search, or opens its next document.
@@ -71,7 +78,7 @@ pub(crate) fn search_files_step<'a, B>(
         }
         return false;
     };
-    let Some(pages) = texts.pages(path) else {
+    let Some(pages) = texts.pages_unchecked(path) else {
         job.current = None;
         return false;
     };

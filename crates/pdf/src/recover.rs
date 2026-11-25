@@ -505,8 +505,14 @@ fn font_dirs() -> Vec<PathBuf> {
 
 /// The file and collection index of the installed font whose family,
 /// full, or PostScript name matches `key`. Reads only each file's name
-/// table.
+/// table, indexing all installed fonts once per process.
 fn find_font_file(key: &str) -> Option<(PathBuf, u32)> {
+    static INDEX: OnceLock<HashMap<String, (PathBuf, u32)>> = OnceLock::new();
+    INDEX.get_or_init(scan_font_files).get(key).cloned()
+}
+
+fn scan_font_files() -> HashMap<String, (PathBuf, u32)> {
+    let mut index = HashMap::new();
     // Linux keeps fonts in nested folders; Windows' are flat.
     let mut dirs = font_dirs();
     while let Some(dir) = dirs.pop() {
@@ -527,22 +533,29 @@ fn find_font_file(key: &str) -> Option<(PathBuf, u32)> {
             if !is_font {
                 continue;
             }
-            if let Some(index) = font_index_named(&path, key) {
-                return Some((path, index));
-            }
+            index_font_file(&path, &mut index);
         }
     }
-    None
+    index
 }
 
-fn font_index_named(path: &Path, key: &str) -> Option<u32> {
-    let mut file = File::open(path).ok()?;
+fn index_font_file(path: &Path, out: &mut HashMap<String, (PathBuf, u32)>) {
+    let Ok(mut file) = File::open(path) else {
+        return;
+    };
     let mut head = [0u8; 12];
-    file.read_exact(&mut head).ok()?;
+    if file.read_exact(&mut head).is_err() {
+        return;
+    }
     let offsets: Vec<u32> = if &head[..4] == b"ttcf" {
-        let count = u32::from_be_bytes(head[8..12].try_into().ok()?).min(64);
+        let Ok(raw) = head[8..12].try_into() else {
+            return;
+        };
+        let count = u32::from_be_bytes(raw).min(64);
         let mut table = vec![0u8; count as usize * 4];
-        file.read_exact(&mut table).ok()?;
+        if file.read_exact(&mut table).is_err() {
+            return;
+        }
         table
             .as_chunks::<4>()
             .0
@@ -552,15 +565,25 @@ fn font_index_named(path: &Path, key: &str) -> Option<u32> {
     } else {
         vec![0]
     };
-    offsets.iter().enumerate().find_map(|(index, &offset)| {
-        let names = name_table(&mut file, offset)?;
-        let table = ttf_parser::name::Table::parse(&names)?;
-        let matches = table.names.into_iter().any(|name| {
-            matches!(name.name_id, 1 | 4 | 6)
-                && name.to_string().is_some_and(|n| name_key(&n) == key)
-        });
-        matches.then_some(index as u32)
-    })
+    for (index, &offset) in offsets.iter().enumerate() {
+        let Some(names) = name_table(&mut file, offset) else {
+            continue;
+        };
+        let Some(table) = ttf_parser::name::Table::parse(&names) else {
+            continue;
+        };
+        for name in table.names {
+            if matches!(name.name_id, 1 | 4 | 6) {
+                if let Some(n) = name.to_string() {
+                    let key = name_key(&n);
+                    if !key.is_empty() {
+                        out.entry(key)
+                            .or_insert_with(|| (path.to_owned(), index as u32));
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The `name` table of the font starting at `offset` in `file`.

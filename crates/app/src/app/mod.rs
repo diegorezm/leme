@@ -161,6 +161,8 @@ pub struct App {
     page_for_library: Option<(String, usize)>,
     /// First pages of library documents, and their page counts.
     covers: HashMap<PathBuf, (slint::Image, usize)>,
+    /// Cached custom images for libraries, keyed by path and mtime.
+    library_images: HashMap<PathBuf, (Option<std::time::SystemTime>, slint::Image)>,
     /// An article to show once its law opens: the law's PDF or address.
     pending_article: Option<(Option<PathBuf>, Option<String>, u32)>,
 }
@@ -225,6 +227,7 @@ impl App {
             adding_to: None,
             page_for_library: None,
             covers: HashMap::new(),
+            library_images: HashMap::new(),
         };
         if let Some(path) = libraries_path() {
             let (libraries, problem) = Libraries::load(&path);
