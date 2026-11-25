@@ -329,6 +329,26 @@ mod tests {
     }
 
     #[test]
+    fn keeps_columns_separate_when_selecting() {
+        let mut chars = boxes("left", 0.2);
+        // Column 2 far to the right on the same visual y.
+        for (i, c) in "right".chars().enumerate() {
+            chars.push(CharBox {
+                c,
+                rect: NormRect {
+                    x: 0.6 + i as f32 * 0.02,
+                    y: 0.2,
+                    width: 0.02,
+                    height: 0.03,
+                },
+            });
+        }
+        let (rects, text) = select_range(&chars, 0, chars.len() - 1).unwrap();
+        assert_eq!(text, "leftright");
+        assert_eq!(rects.len(), 2);
+    }
+
+    #[test]
     fn counts_visual_lines() {
         let mut chars = boxes("one", 0.1);
         chars.extend(boxes("two", 0.2));

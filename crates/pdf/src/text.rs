@@ -411,11 +411,13 @@ pub(crate) fn select_range(
     {
         let r = ch.rect;
         match rects.last_mut() {
-            // Same line: vertical centers overlap, and the char is to the right.
+            // Same line: vertical centers overlap, the char is to the right,
+            // and not across a multi-column gutter.
             Some(line)
                 if (line.y + line.height / 2.0 - (r.y + r.height / 2.0)).abs()
                     < line.height.max(r.height) / 2.0
-                    && r.x >= line.x =>
+                    && r.x >= line.x
+                    && r.x - (line.x + line.width) < line.height.max(r.height) * 2.5 =>
             {
                 let right = (line.x + line.width).max(r.x + r.width);
                 let top = line.y.min(r.y);
