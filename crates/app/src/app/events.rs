@@ -6,7 +6,11 @@ impl App {
     pub fn event(&mut self, window: &AppWindow, event: Event<PageBuffer>) {
         match event {
             // A document opened after a newer one was requested is stale.
-            Event::Opened { ref path, .. } if !self.viewer.is_pending(path) => {}
+            Event::Opened {
+                generation,
+                ref path,
+                ..
+            } if generation != self.viewer.doc_gen() || !self.viewer.is_pending(path) => {}
             Event::Opened {
                 title,
                 page_sizes,
@@ -22,33 +26,61 @@ impl App {
                     }
                 }
             }
-            Event::PasswordNeeded { path, retry } => {
-                if self.viewer.is_pending(&path) {
+            Event::PasswordNeeded {
+                generation,
+                path,
+                retry,
+            } => {
+                if generation == self.viewer.doc_gen() && self.viewer.is_pending(&path) {
                     self.ask_name(window, Prompt::Password(path), "");
                     if retry {
                         window.set_prompt_label(tr("Wrong password").into());
                     }
                 }
             }
-            Event::Labels(labels) => self.viewer.labels_found(window, labels),
-            Event::Link(target) => {
-                if let Some(uri) = self.viewer.link(window, target) {
-                    // Laws link to other laws: open those in Leme.
-                    if crate::html::is_planalto(&uri) {
-                        self.open_page(window, &uri);
-                    } else {
-                        // Only http(s) and mailto links get here (see pdf::safe_uri).
-                        let _ = Command::new("explorer.exe").arg(&uri).spawn();
-                        self.flash(window, &tr("Opened link in browser"));
+            Event::OpenFailed {
+                generation,
+                path,
+                message,
+            } => {
+                if generation == self.viewer.doc_gen()
+                    && self.viewer.open_failed(window, message).as_deref() == Some(path.as_path())
+                {
+                    if let Some(index) = self.tabs.iter().position(|t| *t == path) {
+                        self.close_tab(window, index);
+                    }
+                }
+            }
+            Event::Labels { generation, labels } => {
+                self.viewer.labels_found(window, generation, labels)
+            }
+            Event::Link { generation, target } => {
+                if generation == self.viewer.doc_gen() {
+                    if let Some(uri) = self.viewer.link(window, target) {
+                        // Laws link to other laws: open those in Leme.
+                        if crate::html::is_planalto(&uri) {
+                            self.open_page(window, &uri);
+                        } else {
+                            // Only http(s) and mailto links get here (see pdf::safe_uri).
+                            open_external(&uri);
+                            self.flash(window, &tr("Opened link in browser"));
+                        }
                     }
                 }
             }
             Event::Rendered {
+                generation,
                 page,
                 width_px,
                 bitmap,
-            } => self.viewer.rendered(window, page, width_px, bitmap),
-            Event::Thumbnail { page, bitmap } => self.viewer.thumbnail(page, bitmap),
+            } => self
+                .viewer
+                .rendered(window, generation, page, width_px, bitmap),
+            Event::Thumbnail {
+                generation,
+                page,
+                bitmap,
+            } => self.viewer.thumbnail(generation, page, bitmap),
             Event::Cover {
                 path,
                 bitmap,
@@ -58,7 +90,9 @@ impl App {
                 self.viewer.search_hits(window, id, page, matches)
             }
             Event::SearchDone { id } => self.viewer.search_done(window, id),
-            Event::Selection(parts) => self.viewer.selected(window, parts),
+            Event::Selection { generation, parts } => {
+                self.viewer.selected(window, generation, parts)
+            }
             Event::FileHit {
                 id,
                 path,
@@ -67,7 +101,15 @@ impl App {
                 count,
             } => self.file_hit(window, id, path, page, snippet, count),
             Event::FilesDone { .. } => {}
-            Event::Article { number, page } => self.article_found(window, number, page),
+            Event::Article {
+                generation,
+                number,
+                page,
+            } => {
+                if generation == self.viewer.doc_gen() {
+                    self.article_found(window, number, page);
+                }
+            }
             Event::Typeset { path, result } => match result {
                 // Highlights first find their text again, then it opens.
                 Ok(()) => {
@@ -86,7 +128,10 @@ impl App {
                         self.reopen(window, path);
                     }
                 }
-                Err(err) => self.flash(window, &trf("Couldn't save the page: {}", &[&err])),
+                Err(err) => {
+                    self.page_for_library = None;
+                    self.flash(window, &trf("Couldn't save the page: {}", &[&err]));
+                }
             },
             Event::Relocated { path, found } => {
                 let mut annotations = Annotations::load(&path);
@@ -106,11 +151,7 @@ impl App {
                 }
             }
             Event::Error(message) => {
-                if let Some(path) = self.viewer.open_failed(window, message) {
-                    if let Some(index) = self.tabs.iter().position(|t| *t == path) {
-                        self.close_tab(window, index);
-                    }
-                }
+                self.flash(window, &message);
             }
         }
     }

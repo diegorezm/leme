@@ -285,9 +285,9 @@ impl App {
         if let Some(change) = key.strip_prefix("library-") {
             return self.library_setting(window, change, value);
         }
-        // Choices arrive as shown, in the interface language.
-        let english = untr(value);
-        let value = english.as_str();
+        // Choices arrive as shown, in the interface language. Only translate
+        // back enum choices that are localized in the UI, never free text.
+        let choice = || untr(value);
         let on = value == "true";
         match key {
             "theme" => self.config.theme = value.to_owned(),
@@ -297,14 +297,14 @@ impl App {
                 }
             }
             "page-colors" => {
-                self.config.page_colors = match value {
+                self.config.page_colors = match choice().as_str() {
                     "inverted" => PageColors::Inverted,
                     "original" => PageColors::Original,
                     _ => PageColors::Paper,
                 }
             }
             "default-zoom" => {
-                self.config.default_zoom = if value == "Fit page" {
+                self.config.default_zoom = if choice() == "Fit page" {
                     DefaultZoom::FitPage
                 } else {
                     DefaultZoom::FitWidth
@@ -319,21 +319,21 @@ impl App {
                 }
             }
             "density" => {
-                self.config.density = match value {
+                self.config.density = match choice().as_str() {
                     "Compact" => Density::Compact,
                     "Spacious" => Density::Spacious,
                     _ => Density::Comfortable,
                 }
             }
             "corners" => {
-                self.config.corners = match value {
+                self.config.corners = match choice().as_str() {
                     "Sharp" => Corners::Sharp,
                     "Round" => Corners::Round,
                     _ => Corners::Rounded,
                 }
             }
             "thumbnail-size" => {
-                self.config.thumbnail_size = match value {
+                self.config.thumbnail_size = match choice().as_str() {
                     "Small" => ThumbnailSize::Small,
                     "Large" => ThumbnailSize::Large,
                     _ => ThumbnailSize::Medium,

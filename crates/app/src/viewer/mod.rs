@@ -142,6 +142,10 @@ pub struct Viewer {
     path: Option<PathBuf>,
     /// A document requested but not yet opened by the worker.
     pending: Option<PathBuf>,
+    /// Bumped on every open/close to drop stale worker events.
+    doc_gen: u64,
+    /// Bumped on every open/close/tint change to drop stale renders.
+    render_gen: u64,
     title: String,
     page_sizes: Vec<(f32, f32)>,
     layout: Layout,
@@ -232,6 +236,8 @@ impl Viewer {
             store,
             path: None,
             pending: None,
+            doc_gen: 0,
+            render_gen: 0,
             title: String::new(),
             page_sizes: Vec::new(),
             layout: Layout::default(),

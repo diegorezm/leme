@@ -130,7 +130,7 @@ fn tokens(html: &str) -> Vec<Token<'_>> {
             rest = &rest[1..];
             continue;
         }
-        let Some(gt) = rest.find('>') else {
+        let Some(gt) = find_tag_end(rest) else {
             out.push(Token::Text(rest));
             break;
         };
@@ -165,9 +165,28 @@ fn tag_name(s: &str) -> String {
         .to_ascii_lowercase()
 }
 
+fn find_tag_end(s: &str) -> Option<usize> {
+    let mut quote: Option<u8> = None;
+    for (i, &b) in s.as_bytes().iter().enumerate() {
+        match (quote, b) {
+            (None, b'>') => return Some(i),
+            (None, b'"' | b'\'') => quote = Some(b),
+            (Some(q), c) if q == c => quote = None,
+            _ => {}
+        }
+    }
+    None
+}
+
 fn find_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
-    let lower = haystack.to_ascii_lowercase();
-    lower.find(&needle.to_ascii_lowercase())
+    let n = needle.as_bytes();
+    if n.is_empty() {
+        return Some(0);
+    }
+    haystack
+        .as_bytes()
+        .windows(n.len())
+        .position(|w| w.eq_ignore_ascii_case(n))
 }
 
 // ----- Extraction -----------------------------------------------------------
@@ -331,8 +350,8 @@ pub fn extract(html: &str) -> Article {
     for token in tokens {
         match token {
             Token::Start(name, attrs) => {
-                let hidden = attrs.to_ascii_lowercase().contains("display:none")
-                    || attrs.to_ascii_lowercase().contains("display: none");
+                let hidden = find_ignore_case(attrs, "display:none").is_some()
+                    || find_ignore_case(attrs, "display: none").is_some();
                 if !skipping.is_empty() || SKIP.contains(&name.as_str()) || hidden {
                     if !VOID.contains(&name.as_str()) {
                         skipping.push(name.clone());
@@ -844,6 +863,12 @@ mod tests {
         assert!(a.blocks[0].text().starts_with("a < b bold both"));
         assert_eq!(extract("<p>x").blocks.len(), 1);
         assert_eq!(extract("").blocks.len(), 0);
+        let quoted = extract(r#"<p><a title="1 > 0" href="https://example.com">link</a></p>"#);
+        assert_eq!(quoted.blocks[0].text(), "link");
+        assert_eq!(
+            quoted.blocks[0].runs[0].link.as_deref(),
+            Some("https://example.com")
+        );
     }
 
     #[test]

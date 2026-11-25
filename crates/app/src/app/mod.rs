@@ -325,10 +325,23 @@ pub fn paint_title_bars_soon(window: slint::Weak<AppWindow>) {
     attempt(window, 40);
 }
 
-/// Opens a file with its default app, or a folder in Explorer.
+/// Opens a file with its default app, or a folder in the file manager.
 fn reveal(path: &Path) {
+    #[cfg(windows)]
+    let opener = "explorer.exe";
+    #[cfg(not(windows))]
+    let opener = "xdg-open";
     // Explorer returns a non-zero code even on success; nothing to check.
-    let _ = Command::new("explorer.exe").arg(path).spawn();
+    let _ = Command::new(opener).arg(path).spawn();
+}
+
+/// Opens an external http(s) or mailto URI in the default browser/app.
+pub(super) fn open_external(uri: &str) {
+    #[cfg(windows)]
+    let opener = "explorer.exe";
+    #[cfg(not(windows))]
+    let opener = "xdg-open";
+    let _ = Command::new(opener).arg(uri).spawn();
 }
 
 /// Gives users a starting point when they first open the themes folder.
@@ -371,9 +384,16 @@ fn icon_title(icon: &str) -> &'static str {
 }
 
 fn same_file(a: &Path, b: &Path) -> bool {
-    a == b
-        || a.to_string_lossy()
-            .eq_ignore_ascii_case(&b.to_string_lossy())
+    #[cfg(windows)]
+    {
+        a == b
+            || a.to_string_lossy()
+                .eq_ignore_ascii_case(&b.to_string_lossy())
+    }
+    #[cfg(not(windows))]
+    {
+        a == b
+    }
 }
 
 /// Clears transient status messages ("Copied") after a moment.

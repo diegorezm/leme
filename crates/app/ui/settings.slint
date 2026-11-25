@@ -900,7 +900,6 @@ export component SettingsView inherits Rectangle {
                                             accepted => {
                                                 root.set("library-new", self.text);
                                                 self.text = "";
-                                                root.library-selected = root.library-rows.length;
                                             }
                                         }
                                         if new-name.text == "": Text {
@@ -940,6 +939,11 @@ export component SettingsView inherits Rectangle {
                                         font-size: Theme.font-size-ui;
                                         accepted => {
                                             root.set("library-rename", "\{i}\n\{self.text}");
+                                        }
+                                        changed has-focus => {
+                                            if !self.has-focus && self.text != library.name {
+                                                root.set("library-rename", "\{i}\n\{self.text}");
+                                            }
                                         }
                                     }
                                 }

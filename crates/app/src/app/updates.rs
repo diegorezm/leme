@@ -27,7 +27,7 @@ impl App {
                 }
             }
             Ok(None) if manual => {
-                window.set_status("Leme is up to date".into());
+                window.set_status(tr("Leme is up to date").into());
                 clear_status_later(window);
             }
             Err(err) if manual => {

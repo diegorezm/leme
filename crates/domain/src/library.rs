@@ -65,10 +65,7 @@ impl Libraries {
 
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let text = toml::to_string_pretty(self).map_err(io::Error::other)?;
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        fs::write(path, text)
+        crate::config::write_atomic(path, &text)
     }
 
     pub fn find(&self, name: &str) -> Option<usize> {

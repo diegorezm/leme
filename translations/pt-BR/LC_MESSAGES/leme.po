@@ -958,3 +958,6 @@ msgstr "Imagem"
 
 msgid "PNG, JPG, SVG, or WebP, shown on the card and the home screen."
 msgstr "PNG, JPG, SVG ou WebP, mostrada no card e na tela inicial."
+
+msgid "Leme is up to date"
+msgstr "O Leme já está atualizado"

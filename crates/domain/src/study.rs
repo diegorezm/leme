@@ -236,9 +236,10 @@ fn local_offset() -> i64 {
         days_from_civil(t.year.into(), t.month.into(), t.day.into()) * 86_400
             + i64::from(t.hour) * 3600
             + i64::from(t.minute) * 60
+            + i64::from(t.second)
     };
-    // Whole minutes: the two calls may straddle a second.
-    seconds(&local) - seconds(&utc)
+    // Whole minutes: the two calls may straddle a second or minute boundary.
+    ((seconds(&local) - seconds(&utc) + 30).div_euclid(60)) * 60
 }
 
 fn file_path() -> Option<PathBuf> {

@@ -38,6 +38,8 @@ pub enum PageTint {
 
 pub enum Request {
     Open {
+        generation: u64,
+        render_generation: u64,
         path: PathBuf,
         password: Option<String>,
     },
@@ -63,7 +65,7 @@ pub enum Request {
     /// Selects the whole line of text nearest a point (double click).
     SelectLine { page: usize, point: (f32, f32) },
     /// How future renders color the page.
-    SetTint(PageTint),
+    SetTint { tint: PageTint, generation: u64 },
     /// Follows the link at a point on a page (page fractions), if any.
     LinkAt { page: usize, point: (f32, f32) },
     /// Searches the text of other documents, one page at a time, replacing
@@ -112,6 +114,7 @@ pub enum LinkTarget {
 pub enum Event<B = Bitmap> {
     /// `page_sizes` are in points, one per page.
     Opened {
+        generation: u64,
         path: PathBuf,
         title: String,
         page_sizes: Vec<(f32, f32)>,
@@ -119,19 +122,34 @@ pub enum Event<B = Bitmap> {
     },
     /// The document is encrypted; `retry` is true if a password was wrong.
     PasswordNeeded {
+        generation: u64,
         path: PathBuf,
         retry: bool,
     },
+    /// Opening `path` failed.
+    OpenFailed {
+        generation: u64,
+        path: PathBuf,
+        message: String,
+    },
     /// Page labels (e.g. "iv"), one per page, empty when a page has none.
     /// Sent once, after the rest of the opening work.
-    Labels(Vec<String>),
-    Link(Option<LinkTarget>),
+    Labels {
+        generation: u64,
+        labels: Vec<String>,
+    },
+    Link {
+        generation: u64,
+        target: Option<LinkTarget>,
+    },
     Rendered {
+        generation: u64,
         page: usize,
         width_px: u32,
         bitmap: B,
     },
     Thumbnail {
+        generation: u64,
         page: usize,
         bitmap: B,
     },
@@ -146,7 +164,10 @@ pub enum Event<B = Bitmap> {
     },
     /// Result of a `Select`, one part per page; empty when nothing was
     /// selected.
-    Selection(Vec<SelectionPart>),
+    Selection {
+        generation: u64,
+        parts: Vec<SelectionPart>,
+    },
     /// A page of another document that has the query, with the text around
     /// the first match.
     FileHit {
@@ -161,6 +182,7 @@ pub enum Event<B = Bitmap> {
     },
     /// Where an article starts, if found.
     Article {
+        generation: u64,
         number: u32,
         page: Option<usize>,
     },

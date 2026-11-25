@@ -718,6 +718,7 @@ export component AppWindow inherits Window {
                     // Text selection, annotation clicks, and Ctrl+wheel zoom.
                     // Plain wheel events fall through to the page strip.
                     if root.page-count > 0: TouchArea {
+                        enabled: root.overlay != "prompt" && root.overlay != "update";
                         mouse-cursor: text;
                         pointer-event(event) => {
                             if event.button == PointerEventButton.left {
@@ -815,6 +816,8 @@ export component AppWindow inherits Window {
                         width: min(parent.width - 32px, 400px);
                         height: update-layout.preferred-height;
 
+                        TouchArea { }
+
                         update-layout := VerticalLayout {
                             padding: 16px;
                             spacing: 10px;
@@ -865,6 +868,8 @@ export component AppWindow inherits Window {
                         y: parent.height * 0.2;
                         width: min(parent.width - 32px, 340px);
                         height: 44px;
+
+                        TouchArea { }
 
                         HorizontalLayout {
                             padding-left: 14px;
@@ -1381,7 +1386,6 @@ export component AppWindow inherits Window {
                             width: parent.width - 24px;
                             text: root.export-ready ? root.export-preview : @tr("No notes in the chosen colors");
                             color: Theme.text-muted;
-                            font-family: "Cascadia Mono, Consolas";
                             font-size: Theme.font-size-small;
                             wrap: no-wrap;
                             overflow: elide;
@@ -1635,6 +1639,7 @@ export component SettingsWindow inherits Window {
     in property <[LibraryRow]> library-rows;
     in property <[string]> library-icons;
     in property <[string]> library-icon-keys;
+    in-out property <int> library-selected;
     callback set(string, string);
     callback searched(string);
     callback close-requested();
@@ -1664,6 +1669,7 @@ export component SettingsWindow inherits Window {
             library-rows: root.library-rows;
             library-icons: root.library-icons;
             library-icon-keys: root.library-icon-keys;
+            library-selected <=> root.library-selected;
             theme: root.theme-name;
             page-colors: root.page-colors;
             font-options: root.font-options;

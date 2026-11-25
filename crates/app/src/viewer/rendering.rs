@@ -3,7 +3,17 @@
 use super::*;
 
 impl Viewer {
-    pub fn rendered(&mut self, window: &AppWindow, page: usize, width_px: u32, bitmap: PageBuffer) {
+    pub fn rendered(
+        &mut self,
+        window: &AppWindow,
+        generation: u64,
+        page: usize,
+        width_px: u32,
+        bitmap: PageBuffer,
+    ) {
+        if generation != self.render_gen {
+            return;
+        }
         // A render for an outdated width still beats a blank page.
         let stale = width_px != self.target_width_px(window);
         if stale && self.cache.contains(page) {
@@ -29,7 +39,10 @@ impl Viewer {
         }
     }
 
-    pub fn thumbnail(&mut self, page: usize, bitmap: PageBuffer) {
+    pub fn thumbnail(&mut self, generation: u64, page: usize, bitmap: PageBuffer) {
+        if generation != self.render_gen {
+            return;
+        }
         self.thumb_cache.insert(page, Image::from_rgb8(bitmap));
         let row = self
             .shown_thumbs

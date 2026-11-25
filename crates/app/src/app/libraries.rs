@@ -438,6 +438,7 @@ impl App {
             LibraryAction::Delete => {
                 // Only the list goes; the documents stay where they are.
                 self.libraries.items.remove(i);
+                self.adjust_library_view_on_delete(window, i);
                 self.libraries_changed(window);
                 self.flash(
                     window,
@@ -455,9 +456,10 @@ impl App {
         let i: usize = index.parse().unwrap_or(usize::MAX);
         match change {
             "new" => {
-                if self.libraries.create(value, library::ICONS[0]).is_none() {
+                let Some(created) = self.libraries.create(value, library::ICONS[0]) else {
                     return;
-                }
+                };
+                self.settings.set_library_selected(ui_int(created));
             }
             "rename" => {
                 if !self.libraries.rename(i, arg) {
@@ -490,10 +492,19 @@ impl App {
             }
             "delete" if i < self.libraries.items.len() => {
                 self.libraries.items.remove(i);
+                self.adjust_library_view_on_delete(window, i);
             }
             _ => return,
         }
         self.libraries_changed(window);
+    }
+
+    fn adjust_library_view_on_delete(&mut self, window: &AppWindow, deleted: usize) {
+        match self.library_view {
+            Some(view) if view == deleted => self.close_library(window),
+            Some(view) if view > deleted => self.library_view = Some(view - 1),
+            _ => {}
+        }
     }
 
     pub(super) fn libraries_changed(&mut self, window: &AppWindow) {

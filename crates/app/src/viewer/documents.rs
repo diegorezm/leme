@@ -68,6 +68,10 @@ impl Viewer {
         &self.title
     }
 
+    pub fn doc_gen(&self) -> u64 {
+        self.doc_gen
+    }
+
     /// Starts opening a document. Returns false if the file is gone.
     pub fn open(&mut self, window: &AppWindow, path: PathBuf) -> bool {
         if !path.exists() {
@@ -79,17 +83,28 @@ impl Viewer {
         }
         window.set_status("".into());
         self.keep_view(window);
+        self.doc_gen += 1;
+        self.render_gen += 1;
         self.pending = Some(path.clone());
         let password = self.passwords.get(&path).cloned();
-        self.worker.send(Request::Open { path, password });
+        self.worker.send(Request::Open {
+            generation: self.doc_gen,
+            render_generation: self.render_gen,
+            path,
+            password,
+        });
         true
     }
 
     /// Retries opening an encrypted document with a password.
     pub fn open_with_password(&mut self, path: PathBuf, password: String) {
         self.passwords.insert(path.clone(), password.clone());
+        self.doc_gen += 1;
+        self.render_gen += 1;
         self.pending = Some(path.clone());
         self.worker.send(Request::Open {
+            generation: self.doc_gen,
+            render_generation: self.render_gen,
             path,
             password: Some(password),
         });
@@ -103,6 +118,8 @@ impl Viewer {
     /// Back to the start screen.
     pub fn close(&mut self, window: &AppWindow) {
         self.remember_position();
+        self.doc_gen += 1;
+        self.render_gen += 1;
         self.path = None;
         self.pending = None;
         self.title.clear();
@@ -311,7 +328,11 @@ impl Viewer {
             return;
         }
         self.tint = tint;
-        self.worker.send(Request::SetTint(tint));
+        self.render_gen += 1;
+        self.worker.send(Request::SetTint {
+            tint,
+            generation: self.render_gen,
+        });
         self.cache.clear();
         // Kept pages were rendered with the old colors.
         self.tab_views.clear();

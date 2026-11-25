@@ -196,6 +196,8 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
     // Character boxes of recently selected pages, reused while dragging.
     let mut char_cache: VecDeque<(usize, Chars)> = VecDeque::new();
     let mut tint = PageTint::None;
+    let mut doc_gen: u64 = 0;
+    let mut render_gen: u64 = 0;
     // Whether the live document's page labels are still to be sent.
     let mut labels_due = false;
     let mut link: Option<(usize, (f32, f32))> = None;
@@ -234,12 +236,20 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
         };
 
         match request {
-            Some(Request::Open { path, password }) => {
+            Some(Request::Open {
+                generation,
+                render_generation,
+                path,
+                password,
+            }) => {
+                doc_gen = generation;
+                render_gen = render_generation;
                 renders = Queue::default();
                 thumbs = Queue::default();
                 search = None;
                 last_search = None;
                 select = None;
+                select_line = None;
                 link = None;
                 article = None;
                 char_cache.clear();
@@ -255,6 +265,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                     if let Some(open) = documents.front() {
                         labels_due = true;
                         on_event(Event::Opened {
+                            generation: doc_gen,
                             title: file_title(&path),
                             path,
                             page_sizes: open.page_sizes.clone(),
@@ -280,6 +291,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                         });
                         documents.truncate(OPEN_DOCUMENTS);
                         on_event(Event::Opened {
+                            generation: doc_gen,
                             title: file_title(&path),
                             path,
                             page_sizes,
@@ -289,10 +301,15 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                     Err(PdfiumError::PdfiumLibraryInternalError(
                         PdfiumInternalError::PasswordError,
                     )) => on_event(Event::PasswordNeeded {
+                        generation: doc_gen,
                         path,
                         retry: password.is_some(),
                     }),
-                    Err(err) => on_event(Event::Error(format!("Couldn't open file: {err}"))),
+                    Err(err) => on_event(Event::OpenFailed {
+                        generation: doc_gen,
+                        path,
+                        message: format!("Couldn't open file: {err}"),
+                    }),
                 }
                 continue;
             }
@@ -330,8 +347,12 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                 link = Some((page, point));
                 continue;
             }
-            Some(Request::SetTint(value)) => {
+            Some(Request::SetTint {
+                tint: value,
+                generation,
+            }) => {
                 tint = value;
+                render_gen = generation;
                 continue;
             }
             Some(Request::SearchFiles { id, query, paths }) => {
@@ -428,7 +449,10 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
 
         if let Some((page, point)) = link.take() {
             let target = link_at(doc, page, point);
-            on_event(Event::Link(target));
+            on_event(Event::Link {
+                generation: doc_gen,
+                target,
+            });
         } else if let Some((page, point)) = select_line.take() {
             let boxes = cached_chars(doc, &mut char_cache, page, &mut recover);
             let parts = nearest_char(&boxes, point)
@@ -444,16 +468,22 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                 })
                 .into_iter()
                 .collect();
-            on_event(Event::Selection(number_lines(parts, |page| {
-                cached_chars(doc, &mut char_cache, page, &mut recover)
-            })));
+            on_event(Event::Selection {
+                generation: doc_gen,
+                parts: number_lines(parts, |page| {
+                    cached_chars(doc, &mut char_cache, page, &mut recover)
+                }),
+            });
         } else if let Some((from, to)) = select.take() {
             let parts = select_pages(from, to, |page| {
                 cached_chars(doc, &mut char_cache, page, &mut recover)
             });
-            on_event(Event::Selection(number_lines(parts, |page| {
-                cached_chars(doc, &mut char_cache, page, &mut recover)
-            })));
+            on_event(Event::Selection {
+                generation: doc_gen,
+                parts: number_lines(parts, |page| {
+                    cached_chars(doc, &mut char_cache, page, &mut recover)
+                }),
+            });
         } else if let Some(job) = &mut article {
             let page = job.next;
             job.next += 1;
@@ -461,6 +491,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                 .is_some_and(|text| domain::nav::starts_article(&text, job.number));
             if found || job.next >= page_sizes.len() {
                 on_event(Event::Article {
+                    generation: doc_gen,
                     number: job.number,
                     page: found.then_some(page),
                 });
@@ -471,6 +502,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
             // The full render follows; a failed preview needs no message.
             if let Ok(bitmap) = render(doc, page, width_px, tint, false) {
                 on_event(Event::Rendered {
+                    generation: render_gen,
                     page,
                     width_px,
                     bitmap: convert(bitmap),
@@ -480,6 +512,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
             let width_px = renders.width_px;
             match render(doc, page, width_px, tint, true) {
                 Ok(bitmap) => on_event(Event::Rendered {
+                    generation: render_gen,
                     page,
                     width_px,
                     bitmap: convert(bitmap),
@@ -512,6 +545,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
             // A missing thumbnail isn't worth interrupting the reader for.
             if let Ok(bitmap) = render(doc, page, width_px, tint, false) {
                 on_event(Event::Thumbnail {
+                    generation: render_gen,
                     page,
                     bitmap: convert(bitmap),
                 });
@@ -523,7 +557,10 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
             });
             // Most documents have no labels; don't bother the UI then.
             if found.iter().any(|s| !s.is_empty()) {
-                on_event(Event::Labels(found.clone()));
+                on_event(Event::Labels {
+                    generation: doc_gen,
+                    labels: found.clone(),
+                });
             }
         }
     }

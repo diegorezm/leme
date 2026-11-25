@@ -164,7 +164,8 @@ fn sha256(path: &Path) -> io::Result<String> {
 
 #[cfg(windows)]
 fn sha256(path: &Path) -> io::Result<String> {
-    let mut command = Command::new("certutil");
+    let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+    let mut command = Command::new(Path::new(&system).join("System32").join("certutil.exe"));
     command.arg("-hashfile").arg(path).arg("SHA256");
     no_window(&mut command);
     let output = command.output()?;

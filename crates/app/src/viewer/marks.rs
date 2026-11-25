@@ -98,7 +98,10 @@ impl Viewer {
         window.set_note_tip(a.note.trim().into());
     }
 
-    pub fn selected(&mut self, window: &AppWindow, parts: Vec<SelectionPart>) {
+    pub fn selected(&mut self, window: &AppWindow, generation: u64, parts: Vec<SelectionPart>) {
+        if generation != self.doc_gen {
+            return;
+        }
         self.selection = (!parts.is_empty()).then_some(Selection { parts });
         // The final selection of a finished drag shows the toolbar.
         if self.drag.is_none() && self.selection.is_some() {
@@ -146,7 +149,9 @@ impl Viewer {
         if !matches!(outcome, PopupOutcome::EditNote { .. }) {
             self.popup = Popup::None;
         }
-        self.save_annotations(window);
+        if action != "copy" {
+            self.save_annotations(window);
+        }
         self.refresh(window);
         outcome
     }

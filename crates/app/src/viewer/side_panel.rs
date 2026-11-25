@@ -296,8 +296,8 @@ impl Viewer {
         }
     }
 
-    pub fn labels_found(&mut self, window: &AppWindow, labels: Vec<String>) {
-        if labels.len() == self.page_sizes.len() {
+    pub fn labels_found(&mut self, window: &AppWindow, generation: u64, labels: Vec<String>) {
+        if generation == self.doc_gen && labels.len() == self.page_sizes.len() {
             self.labels = labels;
             self.update_page_label(window);
             self.update_side_items();

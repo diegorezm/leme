@@ -100,9 +100,14 @@ impl App {
             .get(store.current_session)
             .cloned()
             .unwrap_or_else(|| Session::new(DEFAULT_SESSION));
+        let active_path = session.active.and_then(|a| session.tabs.get(a)).cloned();
         self.tabs = session.tabs.into_iter().filter(|p| p.exists()).collect();
         self.active = None;
-        match session.active.filter(|&a| open && a < self.tabs.len()) {
+        let active = open
+            .then_some(active_path)
+            .flatten()
+            .and_then(|path| self.tabs.iter().position(|t| same_file(t, &path)));
+        match active {
             Some(active) => self.activate(window, active),
             None => {
                 self.viewer.close(window);

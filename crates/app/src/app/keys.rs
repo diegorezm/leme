@@ -29,7 +29,8 @@ impl App {
     /// Opens the session's most recently read document from the home
     /// screen. Returns false when there is none, or a document is open.
     pub(super) fn continue_reading(&mut self, window: &AppWindow) -> bool {
-        if self.active.is_some() || !window.get_overlay().is_empty() {
+        if self.active.is_some() || self.library_view.is_some() || !window.get_overlay().is_empty()
+        {
             return false;
         }
         match self.last_read_tab() {

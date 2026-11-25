@@ -92,13 +92,19 @@ pub struct Source {
 /// Saves the downloaded page and where it came from next to its PDF.
 pub fn save(dir: &Path, source: &Source, html: &[u8]) -> io::Result<()> {
     fs::create_dir_all(dir)?;
-    fs::write(dir.join(HTML), html)?;
+    let html_path = dir.join(HTML);
+    let tmp = html_path.with_extension("tmp");
+    fs::write(&tmp, html)?;
+    fs::rename(tmp, html_path)?;
     let mode = if source.revoked {
         "revoked = shown"
     } else {
         "revoked = hidden"
     };
-    fs::write(dir.join("source.txt"), format!("{}\n{mode}\n", source.url))
+    domain::config::write_atomic(
+        &dir.join("source.txt"),
+        &format!("{}\n{mode}\n", source.url),
+    )
 }
 
 const HTML: &str = "page.html";

@@ -274,7 +274,11 @@ impl Annotations {
 
 /// Escapes a string for a double-quoted YAML scalar.
 fn yaml_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
 }
 
 /// Undo and redo for annotation changes. Each entry is a snapshot of the

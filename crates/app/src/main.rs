@@ -144,7 +144,11 @@ fn index(value: i32) -> usize {
 
 fn main() -> Result<(), slint::PlatformError> {
     // `leme file.pdf`, which is also how "Open with" passes files.
-    let paths: Vec<std::path::PathBuf> = std::env::args_os().skip(1).map(Into::into).collect();
+    let paths: Vec<std::path::PathBuf> = std::env::args_os()
+        .skip(1)
+        .map(std::path::PathBuf::from)
+        .map(|p| std::path::absolute(&p).unwrap_or(p))
+        .collect();
     if instance::forward(&paths) {
         return Ok(());
     }

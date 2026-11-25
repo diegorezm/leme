@@ -138,6 +138,68 @@ pub fn break_lines(
     lines
 }
 
+/// Breaks preformatted (`<pre>`) runs into lines, keeping spaces and line
+/// breaks and wrapping only lines wider than `width`.
+pub fn break_code_lines(
+    runs: &[Span],
+    size: f32,
+    width: f32,
+    measure: &mut dyn FnMut(&str, Face) -> f32,
+) -> Vec<Vec<Piece>> {
+    let mut lines: Vec<Vec<Piece>> = Vec::new();
+    let mut line: Vec<Piece> = Vec::new();
+    let mut x = 0.0;
+    for span in runs {
+        let mut part = String::new();
+        for c in span.text.chars() {
+            if c == '\r' {
+                continue;
+            }
+            if c == '\n' {
+                if !part.is_empty() {
+                    let pw = measure(&part, span.face) * size;
+                    line.push(piece(x, &part, span, pw));
+                    part.clear();
+                }
+                lines.push(std::mem::take(&mut line));
+                x = 0.0;
+                continue;
+            }
+            let added = if c == '\t' { "    " } else { "" };
+            let prev_len = part.len();
+            if added.is_empty() {
+                part.push(c);
+            } else {
+                part.push_str(added);
+            }
+            if x + measure(&part, span.face) * size > width && (!line.is_empty() || prev_len > 0) {
+                part.truncate(prev_len);
+                if !part.is_empty() {
+                    let pw = measure(&part, span.face) * size;
+                    line.push(piece(x, &part, span, pw));
+                }
+                lines.push(std::mem::take(&mut line));
+                x = 0.0;
+                part.clear();
+                if added.is_empty() {
+                    part.push(c);
+                } else {
+                    part.push_str(added);
+                }
+            }
+        }
+        if !part.is_empty() {
+            let pw = measure(&part, span.face) * size;
+            line.push(piece(x, &part, span, pw));
+            x += pw;
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
 fn piece(x: f32, text: &str, span: &Span, width: f32) -> Piece {
     Piece {
         x,
@@ -158,7 +220,12 @@ fn merge(line: Vec<Piece>, space: &mut dyn FnMut(Face) -> f32) -> Vec<Piece> {
             Some(last) if last.face == p.face && last.strike == p.strike && last.link == p.link => {
                 let gap = p.x - (last.x + last.width);
                 let spaces = if gap > 0.01 {
-                    (gap / space(p.face)).round().max(1.0) as usize
+                    let sp = space(p.face);
+                    if sp > 0.0 && sp.is_finite() {
+                        (gap / sp).round().clamp(1.0, 64.0) as usize
+                    } else {
+                        1
+                    }
                 } else {
                     0
                 };
@@ -324,11 +391,21 @@ pub fn write(
                       lines: &mut Vec<Line>,
                       metrics: &mut Metrics| {
         let width = text_width - st.indent;
-        let broken = break_lines(&runs, st.size, width, &mut |t, f| {
-            metrics.width(&doc, &fonts, t, f)
-        });
+        let broken = if st.mono {
+            break_code_lines(&runs, st.size, width, &mut |t, f| {
+                metrics.width(&doc, &fonts, t, f)
+            })
+        } else {
+            break_lines(&runs, st.size, width, &mut |t, f| {
+                metrics.width(&doc, &fonts, t, f)
+            })
+        };
         for (i, l) in broken.into_iter().enumerate() {
-            let pieces = merge(l, &mut |f| metrics.width(&doc, &fonts, " ", f) * st.size);
+            let pieces = if st.mono {
+                l
+            } else {
+                merge(l, &mut |f| metrics.width(&doc, &fonts, " ", f) * st.size)
+            };
             lines.push(Line {
                 pieces,
                 size: st.size,
@@ -512,11 +589,19 @@ pub fn write(
             ))?;
         pages = 1;
     }
-    doc.save_to_file(out)?;
+    let tmp = out.with_extension("tmp");
+    if let Err(err) = doc.save_to_file(&tmp) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err);
+    }
     drop(doc);
     // PDFium can't write bookmarks or links; lopdf adds them to the saved
     // file. A failure leaves the document without them, still readable.
-    let _ = add_navigation(out, &marks, &links, &anchors);
+    let _ = add_navigation(&tmp, &marks, &links, &anchors);
+    if let Err(err) = std::fs::rename(&tmp, out) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(PdfiumError::IoError(err));
+    }
     Ok(pages)
 }
 
@@ -778,6 +863,13 @@ mod tests {
         let runs = vec![Span::plain("abcdefghij", Face::Regular)];
         let lines = break_lines(&runs, 2.0, 4.0, &mut fixed);
         assert_eq!(texts(&lines), ["abcd", "efgh", "ij"]);
+    }
+
+    #[test]
+    fn code_blocks_keep_indentation_and_breaks() {
+        let runs = vec![Span::plain("fn a() {\n  let x = 1;\n\n  x\n}", Face::Mono)];
+        let lines = break_code_lines(&runs, 2.0, 20.0, &mut fixed);
+        assert_eq!(texts(&lines), ["fn a() {", "  let x = 1;", "", "  x", "}"]);
     }
 
     /// Typesets a saved HTML page: `LEME_PAGE_HTML=<file> cargo test
