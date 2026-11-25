@@ -75,20 +75,20 @@ Registro da auditoria do código-fonte (workspace `domain`, `web`, `pdf`, `app` 
 
 ## 2. Otimizações
 
-1. **Outline em `O(1)` no scroll (`crates/app/src/viewer/rendering.rs` + `side_panel.rs`):** atualizar apenas a linha anterior e a nova via `set_row_data` em vez de reconstruir todo o `VecModel` do outline (até 5.000 itens) + `note_filters` a cada troca de página.
-2. **Índice único de fontes do sistema em `recover.rs` (`crates/pdf/src/recover.rs`):** cachear o mapa `nome_normalizado -> (PathBuf, u32)` uma vez por processo em `OnceLock`, evitando varrer e abrir todas as fontes do sistema a cada família não encontrada.
-3. **Menos syscalls e alocações na busca entre abas (`crates/pdf/src/find.rs`):** não chamar `modified(path)` (`stat()`) em cada página individual em `search_files_step` (checar ao abrir o arquivo) e evitar alocar `Vec<char>` + `fold` completos a cada letra digitada.
-4. **Parser HTML zero-copy para busca de fechamento e atributos (`crates/web/src/html.rs`):** substituir `rest.to_ascii_lowercase()` em `find_ignore_case` e `attrs.to_ascii_lowercase()` no loop de `extract` por comparação case-insensitive direta.
-5. **Atualização incremental de `SessionSearch`, cache de capas de biblioteca e `save_annotations` seletivo:** evitar `set_vec` completo a cada hit em `file_hit`, cachear `slint::Image` das capas de bibliotecas por `(PathBuf, mtime)`, e não salvar anotações quando `popup_action` for `"copy"`.
+1. [x] **Outline em `O(1)` no scroll (`crates/app/src/viewer/rendering.rs` + `side_panel.rs`):** atualizar apenas a linha anterior e a nova via `set_row_data` em vez de reconstruir todo o `VecModel` do outline (até 5.000 itens) + `note_filters` a cada troca de página.
+2. [x] **Índice único de fontes do sistema em `recover.rs` (`crates/pdf/src/recover.rs`):** cachear o mapa `nome_normalizado -> (PathBuf, u32)` uma vez por processo em `OnceLock`, evitando varrer e abrir todas as fontes do sistema a cada família não encontrada.
+3. [x] **Menos syscalls e alocações na busca entre abas (`crates/pdf/src/find.rs`):** não chamar `modified(path)` (`stat()`) em cada página individual em `search_files_step` (checar ao abrir o arquivo) e evitar alocar `Vec<char>` + `fold` completos a cada letra digitada.
+4. [x] **Parser HTML zero-copy para busca de fechamento e atributos (`crates/web/src/html.rs`):** substituir `rest.to_ascii_lowercase()` em `find_ignore_case` e `attrs.to_ascii_lowercase()` no loop de `extract` por comparação case-insensitive direta.
+5. [x] **Atualização incremental de `SessionSearch`, cache de capas de biblioteca e `save_annotations` seletivo:** evitar `set_vec` completo a cada hit em `file_hit`, cachear `slint::Image` das capas de bibliotecas por `(PathBuf, mtime)`, e não salvar anotações quando `popup_action` for `"copy"`.
 
 ---
 
 ## 3. Refatorações estruturais
 
-- Helper único multiplataforma para abrir URLs/caminhos no sistema (`explorer.exe` no Windows / `xdg-open` no Linux).
-- `Annotations::load` retornar `(Annotations, Option<String>)` em vez de `.unwrap_or_default()` silencioso, evitando sobrescrever um TOML com erro de sintaxe manual ao adicionar uma nova nota.
-- Unificar `fnv1a` (hoje duplicado em `domain/src/annotations.rs` e `web/src/lib.rs`) e sanitização de nomes de arquivo.
-- Em `pdf/src/text.rs::select_range`, impor limite de distância horizontal entre caracteres da mesma linha para não unir retângulos entre colunas de texto em PDFs de duas colunas.
+- [x] Helper único multiplataforma para abrir URLs/caminhos no sistema (`explorer.exe` no Windows / `xdg-open` no Linux).
+- [x] `Annotations::load` retornar `(Annotations, Option<String>)` em vez de `.unwrap_or_default()` silencioso, evitando sobrescrever um TOML com erro de sintaxe manual ao adicionar uma nova nota.
+- [x] Unificar `fnv1a` (hoje duplicado em `domain/src/annotations.rs` e `web/src/lib.rs`).
+- [x] Em `pdf/src/text.rs::select_range`, impor limite de distância horizontal entre caracteres da mesma linha para não unir retângulos entre colunas de texto em PDFs de duas colunas.
 
 ---
 
