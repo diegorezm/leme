@@ -94,11 +94,11 @@ Registro da auditoria do código-fonte (workspace `domain`, `web`, `pdf`, `app` 
 
 ## 4. Melhorias de projeto e novas features
 
-1. **Vínculo de anotações e histórico por fingerprint do PDF** (Document `/ID` ou hash parcial rápido como fallback quando o arquivo for movido ou renomeado).
-2. **Busca em fórmulas recuperadas (`recover.rs`)** integrada ao cache de texto de busca (`OpenDoc::texts`).
-3. **Jumplist / histórico de navegação (`Alt+Left` / `Alt+Right`)** para voltar facilmente após clicar em links internos, sumário ou resultados de busca.
-4. **Marcadores rápidos por teclado (`bookmarks`)** salvos no TOML de anotações e acessíveis via Command Palette (`Ctrl+K`).
-5. **Recorte visual de margens (`crop-margins`) e rotação por documento** (não destrutivos, apenas no layout/renderização).
-6. **Visualização opcional lado a lado (Two-up)** para leitura em monitores largos.
-7. **Evoluções de estudo e exportação:** resumo semanal por biblioteca, exportação Anki em formato Cloze (`{{c1::...}}`) e opção de exportar apenas marcações com nota escrita; auto-reload opcional ao detectar alteração de `mtime` (útil para quem compila LaTeX/Typst).
-8. **Cache em disco para capas de bibliotecas (`cache_dir`)** invalidado por `mtime`, evitando re-renderizar capas via PDFium a cada abertura.
+1. [x] **Vínculo de anotações e histórico por fingerprint do PDF** (hash parcial rápido com índice `fingerprints.txt`, recuperando anotações, posição de leitura e tempo de estudo se o arquivo for movido ou renomeado).
+2. [x] **Busca em fórmulas recuperadas (`recover.rs`)** integrada à busca por página e ao cache de texto (`OpenDoc::texts`).
+3. [x] **Jumplist / histórico de navegação (`Alt+Left` / `Alt+Right`)** para voltar e avançar após saltos por links internos, sumário, notas, páginas ou artigos.
+4. **Marcadores rápidos por teclado (`bookmarks`)** *(adiado)* — salvo como ideia futura para acesso rápido sem poluir a UI.
+5. [x] **Recorte visual de margens (`crop-margins`, `Ctrl+M`) e rotação por documento (`Ctrl+Shift+R`)** — não destrutivos, persistidos por documento em `state.txt`.
+6. [x] **Visualização opcional lado a lado (Two-up, `Alt+2`)** para leitura em monitores largos, persistida por documento em `state.txt`.
+7. [x] **Auto-reload ao detectar alteração de `mtime`** ao focar a janela (`auto_reload = true` em `config.toml`) e recarga manual (`F5` / `ReloadDocument`) preservando scroll e zoom. *(As ideias de resumo por biblioteca, Cloze no Anki e filtro de notas com texto foram descartadas por não agregarem ao fluxo do leitor.)*
+8. [x] **Cache em disco para capas de bibliotecas (`cache_dir()/covers`)** invalidado por `mtime` e largura, evitando re-renderizar capas via PDFium a cada abertura.
