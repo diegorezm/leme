@@ -1142,7 +1142,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "serde",
  "toml",
@@ -2643,7 +2643,7 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "leme"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "arboard",
  "clipboard-win",
@@ -3544,7 +3544,7 @@ checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "pdf"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "domain",
  "lopdf",
@@ -5372,7 +5372,7 @@ dependencies = [
 
 [[package]]
 name = "web"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "domain",
 ]

@@ -2,6 +2,55 @@
 
 All notable changes to Leme (called dpdf until 1.1.0). Versions follow [Semantic Versioning](https://semver.org/).
 
+## 2.2.0 — 2026-11-25
+
+### Added
+
+- **Visual page transforms**: rotate pages clockwise or counter-clockwise
+  (`Ctrl+Shift+R`) and crop empty white margins (`Ctrl+M`), persisted per
+  document without modifying the PDF.
+- **Two-page view** (`Alt+2`): side-by-side spreads, remembered per document.
+- **Jump history** (`Alt+Left` / `Alt+Right`): step back and forward across
+  outline, link, search, and go-to-page jumps.
+- **Auto-reload on disk change** (`F5` to reload manually; `auto_reload = true`
+  by default): detects PDFs rebuilt on disk (e.g. from LaTeX) when the window
+  regains focus and reloads in place while keeping your scroll position.
+- **PDF content fingerprints**: moving or renaming a PDF keeps its reading
+  position, notes, and study time attached automatically.
+- **Search inside recovered formulas**: `Ctrl+F` now also matches text in
+  Word equations and fonts that PDFium maps to blanks.
+- **Persistent cover cache**: library document covers are cached on disk
+  (keyed by path, modification time, and width) so libraries open instantly.
+
+### Fixed
+
+- **Thumbnails on tab switch**: thumbnails no longer disappear when switching
+  tabs with margin cropping or rotation active, and recent tabs keep their
+  rendered thumbnails cached for instant switching.
+- **Multi-column text selection**: dragging across lines in multi-column
+  layouts no longer merges highlights across the column gutter.
+- **Stale worker events**: generation counters drop outdated renders,
+  thumbnails, selections, links, and labels after rapid tab switches or tint
+  changes.
+- **Broken annotation files**: a syntax error in a notes file is reported
+  calmly instead of being overwritten on the next change.
+- **Linux & web pages**: open external links and files with `xdg-open` on
+  Linux; preserve indentation and line breaks in preformatted code blocks;
+  atomic file writes and proper YAML escaping on Markdown export.
+
+### Performance
+
+- **Native cropped & rotated renders**: PDFium renders transformed pages
+  directly into a single output-sized buffer and packs RGB in place, avoiding
+  margin rasterization and software pixel copies.
+- **Faster tab switches and scrolling**: PDF fingerprinting runs once on the
+  worker thread instead of the UI thread; redundant `state.txt` writes on tab
+  switch are eliminated; outline selection updates incrementally during scroll;
+  and keyboard scrolling no longer rebuilds page/thumbnail models per step.
+- **Faster search and libraries**: per-page search caches skip character-box
+  scans on readable pages, session search reduces allocations and stat calls,
+  and library cover/icon scans avoid redundant disk work.
+
 ## 2.1.0 — 2026-11-16
 
 ### Added
