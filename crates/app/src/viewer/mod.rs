@@ -124,6 +124,10 @@ struct TabView {
     path: PathBuf,
     zoom: Zoom,
     viewport: (f32, f32),
+    rotation: u16,
+    crop_margins: bool,
+    crop_box: Option<NormRect>,
+    two_up: bool,
     /// Only the pages around the viewport, so this stays small.
     cache: PageCache<Image>,
 }
@@ -220,6 +224,24 @@ pub struct Viewer {
     /// Passwords typed this run, so switching tabs doesn't ask again.
     /// Never written to disk.
     passwords: HashMap<PathBuf, String>,
+    /// Jump history for `Alt+Left` / `Alt+Right` navigation.
+    jumplist: nav::JumpList,
+    /// Per-document clockwise rotation (0, 90, 180, 270).
+    rotation: u16,
+    /// Whether visual margin cropping is active for this document.
+    crop_margins: bool,
+    /// Estimated document-wide content region for margin cropping.
+    crop_box: Option<NormRect>,
+    /// Whether pages are laid out two side-by-side.
+    two_up: bool,
+    /// Fast file fingerprint for matching moved documents.
+    doc_fingerprint: Option<String>,
+    /// Disk modification time when the current document was opened/reloaded.
+    loaded_modified: Option<std::time::SystemTime>,
+    /// Preserved `(path, page, viewport_y)` across a reload from disk.
+    reload_scroll: Option<(PathBuf, usize, f32)>,
+    /// Old -> new path when a moved document matched a recent entry by fingerprint.
+    migrated_path: Option<(PathBuf, PathBuf)>,
 }
 
 impl Viewer {
@@ -294,6 +316,15 @@ impl Viewer {
             window: window.as_weak(),
             passwords: HashMap::new(),
             renders_held: false,
+            jumplist: nav::JumpList::default(),
+            rotation: 0,
+            crop_margins: false,
+            crop_box: None,
+            two_up: false,
+            doc_fingerprint: None,
+            loaded_modified: None,
+            reload_scroll: None,
+            migrated_path: None,
         };
         viewer.update_recent();
         viewer

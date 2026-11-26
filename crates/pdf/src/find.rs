@@ -1,6 +1,8 @@
 //! Finding text: in the open document, in other documents, and where
 //! annotations' texts moved to.
 
+use crate::recover::Glyph;
+use crate::text::{char_boxes_of, merge_recovered, select_range, CharBox};
 use crate::*;
 
 /// Lowercase without accents, one char for one char, so positions in the
@@ -106,8 +108,75 @@ pub(crate) fn search_files_step<'a, B>(
     false
 }
 
-/// Case-insensitive search of one page. Each match is one or more rects,
-/// since a match can wrap across lines.
+/// Case-insensitive search across pre-merged character boxes (including
+/// recovered glyphs). Spaces and soft hyphens are normalized so queries match
+/// across line breaks and formula runs.
+pub(crate) fn search_chars(chars: &[CharBox], query: &str) -> Vec<Vec<NormRect>> {
+    let mut folded_query = Vec::new();
+    for c in query.chars() {
+        if c == '\u{00AD}' {
+            continue;
+        }
+        let f = fold(c);
+        if f == ' ' {
+            if !folded_query.is_empty() && folded_query.last().is_some_and(|&prev| prev != ' ') {
+                folded_query.push(' ');
+            }
+        } else {
+            folded_query.push(f);
+        }
+    }
+    while matches!(folded_query.last(), Some(' ')) {
+        folded_query.pop();
+    }
+    if folded_query.is_empty() {
+        return Vec::new();
+    }
+
+    let mut stream: Vec<(char, usize)> = Vec::with_capacity(chars.len());
+    for (idx, ch) in chars.iter().enumerate() {
+        if ch.c == '\u{00AD}' {
+            continue;
+        }
+        let f = fold(ch.c);
+        if f == ' ' {
+            if !stream.is_empty() && stream.last().is_some_and(|&(prev, _)| prev != ' ') {
+                stream.push((' ', idx));
+            }
+        } else {
+            stream.push((f, idx));
+        }
+    }
+    while matches!(stream.last(), Some((' ', _))) {
+        stream.pop();
+    }
+
+    let mut matches = Vec::new();
+    let mut i = 0;
+    while i + folded_query.len() <= stream.len() {
+        if stream[i..i + folded_query.len()]
+            .iter()
+            .map(|&(c, _)| c)
+            .eq(folded_query.iter().copied())
+        {
+            let start = stream[i].1;
+            let end = stream[i + folded_query.len() - 1].1;
+            if let Some((rects, _)) = select_range(chars, start, end) {
+                if !rects.is_empty() {
+                    matches.push(rects);
+                }
+            }
+            i += folded_query.len();
+        } else {
+            i += 1;
+        }
+    }
+    matches
+}
+
+/// Case-insensitive search of one page, including recovered glyphs when
+/// PDFium maps text objects to blanks. Each match is one or more rects, since
+/// a match can wrap across lines.
 /// `cached` is the page's squashed text: when known, pages without the
 /// query are skipped without loading them; when unknown, it is filled in.
 pub(crate) fn search_page(
@@ -115,6 +184,7 @@ pub(crate) fn search_page(
     page: usize,
     query: &str,
     cached: Option<&mut Option<String>>,
+    recover: &mut impl FnMut(usize) -> Vec<Glyph>,
 ) -> Result<Vec<Vec<NormRect>>, PdfiumError> {
     if let Some(Some(text)) = cached.as_deref() {
         if !text.contains(&squash(query)) {
@@ -124,6 +194,15 @@ pub(crate) fn search_page(
     let pdf_page = load_page(doc, page)?;
     let size = (pdf_page.width().value, pdf_page.height().value);
     let text = pdf_page.text()?;
+    let (boxes, unreadable) = char_boxes_of(&pdf_page, &text);
+    if unreadable {
+        let merged = merge_recovered(boxes, recover(page));
+        if let Some(slot @ None) = cached {
+            let full: String = merged.iter().map(|b| b.c).collect();
+            *slot = Some(squash(&full));
+        }
+        return Ok(search_chars(&merged, query));
+    }
     if let Some(slot @ None) = cached {
         *slot = Some(squash(&text.all()));
     }
@@ -149,6 +228,7 @@ pub(crate) fn relocate(
 ) -> Vec<(u64, usize, Vec<NormRect>)> {
     let mut texts: Vec<Option<String>> = vec![None; page_count];
     let mut found = Vec::new();
+    let mut no_recover = |_| Vec::new();
     for (id, text, old_page) in items {
         let query = text.split_whitespace().collect::<Vec<_>>().join(" ");
         if query.is_empty() {
@@ -157,7 +237,8 @@ pub(crate) fn relocate(
         let mut pages: Vec<usize> = (0..page_count).collect();
         pages.sort_by_key(|p| p.abs_diff(*old_page));
         let hit = pages.into_iter().find_map(|page| {
-            let matches = search_page(doc, page, &query, texts.get_mut(page)).ok()?;
+            let matches =
+                search_page(doc, page, &query, texts.get_mut(page), &mut no_recover).ok()?;
             matches.into_iter().next().map(|rects| (page, rects))
         });
         if let Some((page, rects)) = hit {

@@ -76,6 +76,28 @@ impl StudyLog {
             .sum()
     }
 
+    /// Moves study seconds recorded under `from` to `to` (for renamed/moved PDFs).
+    pub fn migrate_path(&mut self, from: &Path, to: &Path) -> bool {
+        if from == to {
+            return false;
+        }
+        let keys: Vec<(i64, PathBuf)> = self
+            .entries
+            .keys()
+            .filter(|(_, p)| p == from)
+            .cloned()
+            .collect();
+        if keys.is_empty() {
+            return false;
+        }
+        for key in keys {
+            if let Some(secs) = self.entries.remove(&key) {
+                self.add(key.0, to, secs);
+            }
+        }
+        true
+    }
+
     pub fn load() -> Self {
         file_path()
             .and_then(|path| fs::read_to_string(path).ok())

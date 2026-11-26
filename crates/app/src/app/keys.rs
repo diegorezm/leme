@@ -190,10 +190,21 @@ impl App {
                     reveal(&dir);
                 }
             }
+            Action::ReloadDocument => {
+                self.viewer.reload(window);
+            }
             Action::Escape => self.escape(window),
             _ => {
                 self.viewer.handle(window, action);
             }
+        }
+    }
+
+    /// Checks whether the open document changed on disk when the window
+    /// regains focus (e.g. after a LaTeX build) and reloads it if enabled.
+    pub fn window_focused(&mut self, window: &AppWindow) {
+        if self.config.auto_reload && self.viewer.has_changed_on_disk() {
+            self.viewer.reload(window);
         }
     }
 

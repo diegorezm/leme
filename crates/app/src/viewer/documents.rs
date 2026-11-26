@@ -72,6 +72,41 @@ impl Viewer {
         self.doc_gen
     }
 
+    /// Returns and clears `(old_path, new_path)` when an opened file matched an
+    /// earlier recent entry under a different path by PDF fingerprint.
+    pub fn take_migrated_path(&mut self) -> Option<(PathBuf, PathBuf)> {
+        self.migrated_path.take()
+    }
+
+    /// True if the active file's modification time on disk changed since load.
+    pub fn has_changed_on_disk(&self) -> bool {
+        let Some(path) = self.path.as_deref() else {
+            return false;
+        };
+        let current = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+        current.is_some() && current != self.loaded_modified
+    }
+
+    /// Reloads the active document from disk while preserving reading position
+    /// and per-document view settings.
+    pub fn reload(&mut self, window: &AppWindow) -> bool {
+        let Some(path) = self.path.clone() else {
+            return false;
+        };
+        if !path.exists() {
+            window.set_status(trf("File not found: {}", &[&path.display()]).into());
+            return false;
+        }
+        self.remember_position();
+        self.reload_scroll = Some((path.clone(), self.current_page, -window.get_viewport_y()));
+        self.tab_views.retain(|v| v.path != path);
+        self.worker
+            .send(Request::DropDocument { path: path.clone() });
+        // Prevent `open` from stashing pre-edit pixel renders into `tab_views`.
+        self.path = None;
+        self.open(window, path)
+    }
+
     /// Starts opening a document. Returns false if the file is gone.
     pub fn open(&mut self, window: &AppWindow, path: PathBuf) -> bool {
         if !path.exists() {
@@ -161,6 +196,10 @@ impl Viewer {
                 path,
                 zoom: self.zoom,
                 viewport: (window.get_viewport_x(), window.get_viewport_y()),
+                rotation: self.rotation,
+                crop_margins: self.crop_margins,
+                crop_box: self.crop_box,
+                two_up: self.two_up,
                 // Images are shared, so this copies no pixels; the old pages stay
                 // on screen until the next document arrives. Only the pages on
                 // screen are kept, so kept views stay small.
@@ -183,10 +222,18 @@ impl Viewer {
     ) {
         self.remember_position();
         self.path = self.pending.take();
+        let fp = self
+            .path
+            .as_deref()
+            .and_then(crate::config::file_fingerprint);
+        let modified = self
+            .path
+            .as_deref()
+            .and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
         let restored = self
             .path
             .as_deref()
-            .and_then(|path| self.store.recent_for(path))
+            .and_then(|path| self.store.recent_for_file(path, fp.as_deref()))
             .cloned();
 
         let kept = self.path.as_deref().and_then(|path| {
@@ -209,6 +256,13 @@ impl Viewer {
         self.layout = Layout::default();
         self.thumb_layout = Layout::default();
         self.reset_document_state(window);
+        self.doc_fingerprint = fp;
+        self.loaded_modified = modified;
+        if let (Some(path), Some(old)) = (self.path.as_deref(), restored.as_ref()) {
+            if !crate::app::same_file(path, &old.path) {
+                self.migrated_path = Some((old.path.clone(), path.to_path_buf()));
+            }
+        }
         let (annotations, notes_problem) = self
             .path
             .as_deref()
@@ -222,6 +276,7 @@ impl Viewer {
         window.set_current_page(0);
         window.set_status(
             notes_problem
+                .as_ref()
                 .map(|err| {
                     trf(
                         "Couldn't read notes ({}); changes won't overwrite the file",
@@ -235,26 +290,68 @@ impl Viewer {
         window.set_viewport_y(0.0);
         window.set_thumbs_viewport_y(0.0);
         if let Some(view) = kept {
+            self.rotation = view.rotation;
+            self.crop_margins = view.crop_margins;
+            self.crop_box = view.crop_box;
+            self.two_up = view.two_up;
             // Same pixels as when the user left: no blank pages, no jump.
             self.cache = view.cache;
             window.set_viewport_x(view.viewport.0);
             window.set_viewport_y(view.viewport.1);
             self.relayout(window);
         } else {
+            if let Some(ref r) = restored {
+                self.rotation = crate::geometry::ViewTransform::normalize_rotation(r.view.rotation);
+                self.crop_margins = r.view.crop_margins;
+                self.two_up = r.view.two_up;
+            }
             self.relayout(window);
-            if let Some(page) = restored.map(|r| r.page) {
+            let reload = self
+                .reload_scroll
+                .take()
+                .filter(|(p, _, _)| self.path.as_deref() == Some(p.as_path()));
+            if let Some((_, page, vp_y)) = reload {
+                if page < self.page_sizes.len() {
+                    self.scroll_to(window, vp_y);
+                    self.refresh(window);
+                } else {
+                    self.go_to_page(window, page.min(self.page_sizes.len().saturating_sub(1)));
+                }
+            } else if let Some(page) = restored.map(|r| r.page) {
                 self.go_to_page(window, page.min(self.page_sizes.len().saturating_sub(1)));
             }
+        }
+        if !self.view_transform().is_identity() {
+            self.worker.send(Request::SetView {
+                transform: self.view_transform(),
+                generation: self.render_gen,
+            });
+        }
+        if self.crop_margins && self.crop_box.is_none() {
+            self.worker.send(Request::DetectCrop {
+                generation: self.doc_gen,
+                page: self.current_page,
+            });
         }
         self.remember_position();
         self.update_recent();
         self.update_side_items();
         self.update_progress(window);
-        let sections = self.sections().count();
-        if self.annotations.outline_sections != sections
+        let needs_fp_migration = notes_problem.is_none()
             && (self.has_notes() || !self.annotations.sections.is_empty())
+            && self.path.as_deref().is_some_and(|p| {
+                self.annotations.fingerprint.is_empty()
+                    || !crate::app::same_file(Path::new(&self.annotations.document), p)
+            });
+        let sections = self.sections().count();
+        if needs_fp_migration
+            || (self.annotations.outline_sections != sections
+                && (self.has_notes() || !self.annotations.sections.is_empty()))
         {
             self.annotations.outline_sections = sections;
+            if let Some(fp) = &self.doc_fingerprint {
+                self.annotations.fingerprint = fp.clone();
+            }
             self.save_annotations(window);
         }
     }
@@ -271,6 +368,14 @@ impl Viewer {
         self.annotations = Annotations::default();
         self.annotations_broken = false;
         self.history.clear();
+        self.jumplist.clear();
+        self.rotation = 0;
+        self.crop_margins = false;
+        self.crop_box = None;
+        self.two_up = false;
+        self.doc_fingerprint = None;
+        self.loaded_modified = None;
+        self.migrated_path = None;
         // A filter set for one document would hide colors in the next.
         self.hidden_colors.clear();
         self.close_search(window);
@@ -309,8 +414,10 @@ impl Viewer {
         };
         self.store.remember(Recent {
             path,
+            fingerprint: self.doc_fingerprint.clone(),
             page: self.current_page,
             zoom: self.zoom,
+            view: self.doc_view(),
         });
         true
     }

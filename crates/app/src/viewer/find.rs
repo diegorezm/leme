@@ -77,6 +77,7 @@ impl Viewer {
     /// Scrolls the current match into view if it isn't already.
     pub(super) fn reveal_match(&mut self, window: &AppWindow) {
         self.update_search_status(window);
+        let vt = self.view_transform();
         let target = self
             .search
             .as_ref()
@@ -84,7 +85,8 @@ impl Viewer {
             .and_then(|m| {
                 let page = self.layout.rect(m.page)?;
                 let first = m.rects.first()?;
-                Some(page.y + first.y * page.height)
+                let r = vt.to_view(*first).unwrap_or(*first);
+                Some(page.y + r.y * page.height)
             });
         if let Some(y) = target {
             let top = -window.get_viewport_y();

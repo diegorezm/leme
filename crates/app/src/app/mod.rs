@@ -386,7 +386,7 @@ fn icon_title(icon: &str) -> &'static str {
     }
 }
 
-fn same_file(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     #[cfg(windows)]
     {
         a == b

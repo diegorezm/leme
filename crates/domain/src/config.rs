@@ -102,6 +102,8 @@ pub struct Config {
     pub sidebar_button: bool,
     /// Ask GitHub for a newer release on startup.
     pub check_updates: bool,
+    /// Automatically reload the open PDF when its file changes on disk.
+    pub auto_reload: bool,
     /// Interface language: "pt-BR" or "en".
     pub language: String,
     /// Interface font family, e.g. "Segoe UI Variable Text" or "Inter".
@@ -150,6 +152,7 @@ impl Default for Config {
             sidebar: true,
             sidebar_button: true,
             check_updates: true,
+            auto_reload: true,
             font: "Segoe UI Variable Text".to_owned(),
             font_size: 14.0,
             density: Density::Comfortable,
@@ -520,13 +523,47 @@ pub fn fnv1a(bytes: &[u8]) -> u64 {
     })
 }
 
+/// Fast content fingerprint of a file on disk: hashes its length plus up to
+/// 64 KiB from both the start and the end, so moved/renamed PDFs match.
+pub fn file_fingerprint(path: &std::path::Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    const CHUNK: usize = 64 * 1024;
+    let mut file = fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut buf = vec![0u8; CHUNK.min(len as usize)];
+    file.read_exact(&mut buf).ok()?;
+    let mut h1 = fnv1a(&len.to_le_bytes());
+    for &b in &buf {
+        h1 = (h1 ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    let mut h2 = fnv1a(&len.to_be_bytes());
+    if len > CHUNK as u64 {
+        file.seek(SeekFrom::End(-(CHUNK as i64))).ok()?;
+        let mut tail = vec![0u8; CHUNK];
+        file.read_exact(&mut tail).ok()?;
+        for &b in &tail {
+            h2 = (h2 ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    } else {
+        for &b in buf.iter().rev() {
+            h2 = (h2 ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    Some(format!("{h1:016x}-{h2:016x}"))
+}
+
 /// Write then rename, so a crash never leaves a half-written file.
 pub fn write_atomic(path: &std::path::Path, contents: &str) -> io::Result<()> {
+    write_atomic_bytes(path, contents.as_bytes())
+}
+
+/// Binary counterpart of [`write_atomic`].
+pub fn write_atomic_bytes(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
     let tmp = path.with_extension("tmp");
-    fs::write(&tmp, contents)?;
+    fs::write(&tmp, bytes)?;
     fs::rename(tmp, path)
 }
 

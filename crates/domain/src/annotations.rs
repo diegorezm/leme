@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{data_dir, fnv1a, write_atomic};
+use crate::config::{data_dir, file_fingerprint, fnv1a, write_atomic};
 use crate::geometry::NormRect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +83,9 @@ pub struct Annotations {
     /// The document these belong to, for humans reading the file.
     #[serde(default)]
     pub document: String,
+    /// Content fingerprint of the PDF, used to re-link moved/renamed files.
+    #[serde(default)]
+    pub fingerprint: String,
     #[serde(default, rename = "annotation")]
     pub items: Vec<Annotation>,
     /// Outline sections with a page, so the home screen can show
@@ -104,7 +107,14 @@ impl Annotations {
         };
         match fs::read_to_string(&path) {
             Ok(text) => Self::parse_checked(&text),
-            Err(err) if err.kind() == io::ErrorKind::NotFound => (Self::default(), None),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                if let Some(moved) = moved_file_for(doc) {
+                    if let Ok(text) = fs::read_to_string(moved) {
+                        return Self::parse_checked(&text);
+                    }
+                }
+                (Self::default(), None)
+            }
             Err(err) => (Self::default(), Some(err.to_string())),
         }
     }
@@ -124,8 +134,36 @@ impl Annotations {
                 _ => Ok(()),
             };
         }
-        let body = toml::to_string(self).map_err(io::Error::other)?;
-        write_atomic(&path, &body)
+        let fp = if !self.fingerprint.is_empty() {
+            Some(self.fingerprint.clone())
+        } else {
+            file_fingerprint(doc)
+        };
+        let body = if let Some(ref fp) = fp {
+            if self.fingerprint.is_empty() {
+                let with_fp = AnnotationsView {
+                    document: &self.document,
+                    fingerprint: fp,
+                    items: &self.items,
+                    outline_sections: self.outline_sections,
+                    sections: &self.sections,
+                };
+                toml::to_string(&with_fp).map_err(io::Error::other)?
+            } else {
+                toml::to_string(self).map_err(io::Error::other)?
+            }
+        } else {
+            toml::to_string(self).map_err(io::Error::other)?
+        };
+        write_atomic(&path, &body)?;
+        if let (Some(fp), Some(index), Some(name)) = (
+            fp.as_deref(),
+            index_file(),
+            path.file_name().and_then(|n| n.to_str()),
+        ) {
+            let _ = record_fingerprint(&index, fp, name);
+        }
+        Ok(())
     }
 
     pub fn add(
@@ -338,6 +376,56 @@ impl History {
     }
 }
 
+#[derive(Serialize)]
+struct AnnotationsView<'a> {
+    document: &'a str,
+    fingerprint: &'a str,
+    #[serde(rename = "annotation")]
+    items: &'a [Annotation],
+    outline_sections: usize,
+    #[serde(rename = "section")]
+    sections: &'a [Section],
+}
+
+fn index_file() -> Option<PathBuf> {
+    Some(data_dir()?.join("annotations").join("fingerprints.txt"))
+}
+
+fn moved_file_for(doc: &Path) -> Option<PathBuf> {
+    let dir = data_dir()?.join("annotations");
+    let fp = file_fingerprint(doc)?;
+    lookup_fingerprint(&dir.join("fingerprints.txt"), &dir, &fp)
+}
+
+fn lookup_fingerprint(index: &Path, dir: &Path, fp: &str) -> Option<PathBuf> {
+    let text = fs::read_to_string(index).ok()?;
+    let name = text.lines().find_map(|line| {
+        let (key, file) = line.split_once('\t')?;
+        (key == fp && !file.trim().is_empty()).then(|| file.trim())
+    })?;
+    let path = dir.join(name);
+    path.is_file().then_some(path)
+}
+
+fn record_fingerprint(index: &Path, fp: &str, file_name: &str) -> io::Result<()> {
+    const MAX_ENTRIES: usize = 2000;
+    let existing = fs::read_to_string(index).unwrap_or_default();
+    let mut entries: Vec<String> = Vec::new();
+    entries.push(format!("{fp}\t{file_name}"));
+    for line in existing.lines() {
+        if let Some((key, _)) = line.split_once('\t') {
+            if key != fp {
+                entries.push(line.to_owned());
+            }
+        }
+        if entries.len() >= MAX_ENTRIES {
+            break;
+        }
+    }
+    let body = entries.join("\n") + "\n";
+    write_atomic(index, &body)
+}
+
 fn file_for(doc: &Path) -> Option<PathBuf> {
     let key = doc.to_string_lossy().to_lowercase();
     Some(
@@ -529,6 +617,19 @@ mod tests {
         history.record(&a.items);
         a.remove(id);
         assert!(history.redo(&a.items).is_none());
+    }
+
+    #[test]
+    fn fingerprint_index_recovers_moved_file() {
+        let dir = std::env::temp_dir().join(format!("leme-fp-idx-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let toml_path = dir.join("oldhash.toml");
+        fs::write(&toml_path, "document = \"old.pdf\"\n").unwrap();
+        let index = dir.join("fingerprints.txt");
+        record_fingerprint(&index, "abc-123", "oldhash.toml").unwrap();
+        assert_eq!(lookup_fingerprint(&index, &dir, "abc-123"), Some(toml_path));
+        assert_eq!(lookup_fingerprint(&index, &dir, "missing"), None);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

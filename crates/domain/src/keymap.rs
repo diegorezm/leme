@@ -59,6 +59,13 @@ actions! {
     NextPage => "next-page", "Next page";
     FirstPage => "first-page", "First page";
     LastPage => "last-page", "Last page";
+    JumpBack => "jump-back", "Jump back";
+    JumpForward => "jump-forward", "Jump forward";
+    RotateClockwise => "rotate-clockwise", "Rotate clockwise";
+    RotateCounterClockwise => "rotate-counter-clockwise", "Rotate counter-clockwise";
+    ToggleCropMargins => "toggle-crop-margins", "Crop page margins";
+    ToggleTwoUp => "toggle-two-up", "Two-page view";
+    ReloadDocument => "reload-document", "Reload document";
     ScrollDown => "scroll-down", "Scroll down";
     ScrollUp => "scroll-up", "Scroll up";
     ScrollLeft => "scroll-left", "Scroll left";
@@ -134,6 +141,12 @@ const DEFAULT_KEYS: &[(Action, &str)] = &[
     (Action::NextPage, "pagedown"),
     (Action::FirstPage, "home"),
     (Action::LastPage, "end"),
+    (Action::JumpBack, "alt+left"),
+    (Action::JumpForward, "alt+right"),
+    (Action::RotateClockwise, "ctrl+shift+r"),
+    (Action::ToggleCropMargins, "ctrl+m"),
+    (Action::ToggleTwoUp, "alt+2"),
+    (Action::ReloadDocument, "f5"),
     (Action::ScrollDown, "down"),
     (Action::ScrollUp, "up"),
     (Action::NextTab, "ctrl+tab"),

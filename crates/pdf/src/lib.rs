@@ -66,6 +66,15 @@ pub enum Request {
     SelectLine { page: usize, point: (f32, f32) },
     /// How future renders color the page.
     SetTint { tint: PageTint, generation: u64 },
+    /// Sets the visual rotation and margin crop for future renders and thumbnails.
+    SetView {
+        transform: domain::geometry::ViewTransform,
+        generation: u64,
+    },
+    /// Estimates a union content bounding box for visual margin cropping.
+    DetectCrop { generation: u64, page: usize },
+    /// Drops `path` from the worker's open-document cache so a reload re-reads it from disk.
+    DropDocument { path: PathBuf },
     /// Follows the link at a point on a page (page fractions), if any.
     LinkAt { page: usize, point: (f32, f32) },
     /// Searches the text of other documents, one page at a time, replacing
@@ -202,6 +211,11 @@ pub enum Event<B = Bitmap> {
     Typeset {
         path: PathBuf,
         result: Result<(), String>,
+    },
+    /// Estimated content region for margin cropping, or `None` if no meaningful margins exist.
+    CropDetected {
+        generation: u64,
+        crop: Option<NormRect>,
     },
     Error(String),
 }
@@ -531,8 +545,9 @@ mod tests {
             ms(t) / pages.len() as f64
         );
         let t = Instant::now();
+        let mut no_recover = |_| Vec::new();
         for page in 0..sizes.len() {
-            search_page(&doc, page, "holmes", None).unwrap();
+            search_page(&doc, page, "holmes", None, &mut no_recover).unwrap();
         }
         println!("search all pages: {:.0} ms", ms(t));
         // Typing "holmes" letter by letter, each search narrowing the last.
@@ -543,7 +558,7 @@ mod tests {
             let mut job = SearchJob::new(0, "holmes"[..end].into(), sizes.len(), 0, last.take());
             while let Some(page) = job.next_page() {
                 let text = texts.get_mut(page);
-                if !search_page(&doc, page, &job.query, text)
+                if !search_page(&doc, page, &job.query, text, &mut no_recover)
                     .unwrap()
                     .is_empty()
                 {
@@ -555,7 +570,7 @@ mod tests {
         println!("typed search, 6 queries: {:.0} ms", ms(t));
         let t = Instant::now();
         for page in 0..sizes.len() {
-            search_page(&doc, page, "watson", texts.get_mut(page)).unwrap();
+            search_page(&doc, page, "watson", texts.get_mut(page), &mut no_recover).unwrap();
         }
         println!("search again, text cached: {:.0} ms", ms(t));
         let t = Instant::now();
@@ -567,6 +582,57 @@ mod tests {
                 .and_then(|p| p.label().map(str::to_owned));
             assert_eq!(*label, slow.unwrap_or_default());
         }
+    }
+
+    #[test]
+    fn search_chars_finds_recovered_formulas() {
+        use crate::text::CharBox;
+        let box_of = |c: char, i: usize| CharBox {
+            c,
+            rect: NormRect {
+                x: 0.1 + (i as f32) * 0.05,
+                y: 0.2,
+                width: 0.04,
+                height: 0.05,
+            },
+        };
+        let chars: Vec<CharBox> = "Let α + β = 1"
+            .chars()
+            .enumerate()
+            .map(|(i, c)| box_of(c, i))
+            .collect();
+        let hits = crate::find::search_chars(&chars, "α + β");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].len(), 1);
+        assert!(crate::find::search_chars(&chars, "γ").is_empty());
+    }
+
+    #[test]
+    fn pack_rgb_transformed_crops_and_rotates() {
+        use domain::geometry::ViewTransform;
+        // 3x2 pixel buffer:
+        // row 0: [R=(1,0,0), G=(2,0,0), B=(3,0,0)]
+        // row 1: [C=(4,0,0), M=(5,0,0), Y=(6,0,0)]
+        let mut buf = Vec::new();
+        for v in 1..=6u8 {
+            buf.extend_from_slice(&[v, 0, 0, 255]);
+        }
+        let luts = tint_lut(PageTint::None);
+        // Rotated 90 CW without crop -> 2x3; top-left is old bottom-left (4).
+        let (w, h, rgb) = crate::render::pack_rgb_transformed(
+            &buf,
+            3,
+            2,
+            &luts,
+            ViewTransform {
+                rotation: 90,
+                crop: None,
+            },
+        );
+        assert_eq!((w, h), (2, 3));
+        assert_eq!([rgb[0], rgb[3]], [4, 1]);
+        assert_eq!([rgb[6], rgb[9]], [5, 2]);
+        assert_eq!([rgb[12], rgb[15]], [6, 3]);
     }
 
     /// Needs PDFium; skipped when the library can't be loaded.
@@ -586,8 +652,9 @@ mod tests {
         assert_eq!((bitmap.width, bitmap.height), (100, 150));
         assert_eq!(bitmap.rgb.len(), 100 * 150 * 3);
         assert!(render(&doc, 5, 100, PageTint::None, true).is_err());
+        let mut no_recover = |_| Vec::new();
         assert_eq!(
-            search_page(&doc, 0, "anything", None).unwrap(),
+            search_page(&doc, 0, "anything", None, &mut no_recover).unwrap(),
             Vec::<Vec<_>>::new()
         );
     }

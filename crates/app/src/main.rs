@@ -10,8 +10,8 @@ mod viewer;
 use ::pdf;
 use ::web;
 use domain::{
-    annotations, cache, config, export, i18n, keymap, layout, library, nav, palette, search, store,
-    study,
+    annotations, cache, config, export, geometry, i18n, keymap, layout, library, nav, palette,
+    search, store, study,
 };
 use web::{html, update};
 
@@ -345,18 +345,27 @@ fn main() -> Result<(), slint::PlatformError> {
         slint::CloseRequestResponse::HideWindow
     });
 
-    // Dropping PDFs on the window opens them, like Ctrl+O.
+    // Dropping PDFs on the window opens them, like Ctrl+O; regaining focus
+    // checks if the open document changed on disk.
     {
         use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
         let weak = window.as_weak();
         window.window().on_winit_window_event(move |_, event| {
-            if let WindowEvent::DroppedFile(path) = event {
-                let is_pdf = path
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"));
-                if let (true, Some(win)) = (is_pdf, weak.upgrade()) {
-                    with_app(|app| app.open_path(&win, path.clone()));
+            match event {
+                WindowEvent::DroppedFile(path) => {
+                    let is_pdf = path
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"));
+                    if let (true, Some(win)) = (is_pdf, weak.upgrade()) {
+                        with_app(|app| app.open_path(&win, path.clone()));
+                    }
                 }
+                WindowEvent::Focused(true) => {
+                    if let Some(win) = weak.upgrade() {
+                        with_app(|app| app.window_focused(&win));
+                    }
+                }
+                _ => {}
             }
             EventResult::Propagate
         });

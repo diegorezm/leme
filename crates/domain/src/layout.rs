@@ -19,11 +19,20 @@ pub struct PageRect {
     pub height: f32,
 }
 
-/// Page positions for a document laid out top to bottom, every page scaled
-/// to the same width.
+#[derive(Debug, Clone, Copy)]
+struct RowBounds {
+    y: f32,
+    bottom: f32,
+    start_page: usize,
+    end_page: usize,
+}
+
+/// Page positions for a document laid out top to bottom, in single-page or
+/// side-by-side (`two_up`) rows, every page scaled to the same width.
 #[derive(Debug, Default)]
 pub struct Layout {
     rects: Vec<PageRect>,
+    rows: Vec<RowBounds>,
     content_width: f32,
     content_height: f32,
 }
@@ -31,29 +40,58 @@ pub struct Layout {
 impl Layout {
     /// `page_sizes` are page dimensions in points; `zoom` 1.0 means fit width.
     pub fn new(page_sizes: &[(f32, f32)], viewport_width: f32, zoom: f32) -> Self {
-        let fit_width = (viewport_width - 2.0 * SIDE_MARGIN).max(1.0);
-        let page_width = (fit_width * zoom).max(1.0);
-        let content_width = viewport_width.max(page_width + 2.0 * SIDE_MARGIN);
-        let x = (content_width - page_width) / 2.0;
+        Self::new_with_mode(page_sizes, viewport_width, zoom, false)
+    }
 
+    /// Lays out pages either stacked one per row (`two_up = false`) or in
+    /// side-by-side spreads of two (`two_up = true`).
+    pub fn new_with_mode(
+        page_sizes: &[(f32, f32)],
+        viewport_width: f32,
+        zoom: f32,
+        two_up: bool,
+    ) -> Self {
+        let cols = if two_up { 2 } else { 1 };
+        let fit_width = fit_page_width(viewport_width, two_up);
+        let page_width = (fit_width * zoom).max(1.0);
+        let spread_width = if two_up && page_sizes.len() > 1 {
+            page_width * 2.0 + GAP
+        } else {
+            page_width
+        };
+        let content_width = viewport_width.max(spread_width + 2.0 * SIDE_MARGIN);
+        let x_start = (content_width - spread_width) / 2.0;
+
+        let mut rects = Vec::with_capacity(page_sizes.len());
+        let mut rows = Vec::with_capacity(page_sizes.len().div_ceil(cols));
         let mut y = GAP;
-        let rects = page_sizes
-            .iter()
-            .map(|&(w, h)| {
+        for (row_idx, chunk) in page_sizes.chunks(cols).enumerate() {
+            let start_page = row_idx * cols;
+            let mut row_height = 0.0_f32;
+            for (col, &(w, h)) in chunk.iter().enumerate() {
                 let aspect = if w > 0.0 && h > 0.0 { h / w } else { 1.0 };
-                let rect = PageRect {
-                    x,
+                let height = page_width * aspect;
+                row_height = row_height.max(height);
+                rects.push(PageRect {
+                    x: x_start + (col as f32) * (page_width + GAP),
                     y,
                     width: page_width,
-                    height: page_width * aspect,
-                };
-                y += rect.height + GAP;
-                rect
-            })
-            .collect();
+                    height,
+                });
+            }
+            let bottom = y + row_height;
+            rows.push(RowBounds {
+                y,
+                bottom,
+                start_page,
+                end_page: start_page + chunk.len(),
+            });
+            y = bottom + GAP;
+        }
 
         Self {
             rects,
+            rows,
             content_width,
             content_height: y,
         }
@@ -78,23 +116,45 @@ impl Layout {
     /// Pages intersecting `[top, top + height)`.
     pub fn visible(&self, top: f32, height: f32) -> Range<usize> {
         let bottom = top + height;
-        let start = self.rects.partition_point(|r| r.y + r.height <= top);
-        let end = self.rects.partition_point(|r| r.y < bottom);
-        start..end.max(start)
+        let start_row = self.rows.partition_point(|r| r.bottom <= top);
+        let end_row = self.rows.partition_point(|r| r.y < bottom);
+        let start = self
+            .rows
+            .get(start_row)
+            .map_or(self.rects.len(), |r| r.start_page);
+        let end = if end_row <= start_row {
+            start
+        } else {
+            self.rows[end_row - 1].end_page
+        };
+        start..end
     }
 
     /// The page shown at the vertical middle of the viewport.
     pub fn current_page(&self, top: f32, height: f32) -> usize {
+        if self.rows.is_empty() {
+            return 0;
+        }
         let middle = top + height / 2.0;
         let index = self
-            .rects
-            .partition_point(|r| r.y + r.height + GAP <= middle);
-        index.min(self.rects.len().saturating_sub(1))
+            .rows
+            .partition_point(|r| r.bottom + GAP <= middle)
+            .min(self.rows.len().saturating_sub(1));
+        self.rows[index].start_page
     }
 
     /// Scroll offset that puts `page` at the top of the viewport.
     pub fn scroll_to(&self, page: usize) -> f32 {
         self.rect(page).map_or(0.0, |r| r.y - GAP)
+    }
+}
+
+fn fit_page_width(viewport_width: f32, two_up: bool) -> f32 {
+    let strip = (viewport_width - 2.0 * SIDE_MARGIN).max(1.0);
+    if two_up {
+        ((strip - GAP) / 2.0).max(1.0)
+    } else {
+        strip
     }
 }
 
@@ -106,8 +166,13 @@ pub fn with_margin(range: Range<usize>, margin: usize, count: usize) -> Range<us
 /// Zoom (relative to fit width) at which a page of `page_size` points fits
 /// entirely in the viewport.
 pub fn fit_page_zoom(page_size: (f32, f32), viewport: (f32, f32)) -> f32 {
+    fit_page_zoom_in_mode(page_size, viewport, false)
+}
+
+/// Like [`fit_page_zoom`], accounting for single vs two-up page width.
+pub fn fit_page_zoom_in_mode(page_size: (f32, f32), viewport: (f32, f32), two_up: bool) -> f32 {
     let (page_w, page_h) = page_size;
-    let fit_width = (viewport.0 - 2.0 * SIDE_MARGIN).max(1.0);
+    let fit_width = fit_page_width(viewport.0, two_up);
     if page_w <= 0.0 || page_h <= 0.0 {
         return 1.0;
     }
@@ -128,9 +193,14 @@ pub enum Zoom {
 impl Zoom {
     /// The scale factor relative to fit width, for the page being read.
     pub fn factor(self, page_size: (f32, f32), viewport: (f32, f32)) -> f32 {
+        self.factor_in_mode(page_size, viewport, false)
+    }
+
+    /// Like [`Zoom::factor`], accounting for single vs two-up mode.
+    pub fn factor_in_mode(self, page_size: (f32, f32), viewport: (f32, f32), two_up: bool) -> f32 {
         match self {
             Zoom::FitWidth => 1.0,
-            Zoom::FitPage => fit_page_zoom(page_size, viewport),
+            Zoom::FitPage => fit_page_zoom_in_mode(page_size, viewport, two_up),
             Zoom::Custom(factor) => factor.clamp(MIN_ZOOM, MAX_ZOOM),
         }
     }
@@ -238,5 +308,21 @@ mod tests {
         }
         assert_eq!(Zoom::from_token("-1"), None);
         assert_eq!(Zoom::from_token("abc"), None);
+    }
+
+    #[test]
+    fn two_up_pairs_pages_in_rows() {
+        let vp_w = 200.0 + 2.0 * SIDE_MARGIN + GAP;
+        let layout = Layout::new_with_mode(&[(100.0, 200.0); 3], vp_w, 1.0, true);
+        let r0 = layout.rect(0).expect("page 0");
+        let r1 = layout.rect(1).expect("page 1");
+        let r2 = layout.rect(2).expect("page 2");
+        assert_eq!(r0.width, 100.0);
+        assert_eq!(r0.y, r1.y);
+        assert_eq!(r1.x, r0.x + 100.0 + GAP);
+        assert_eq!(r2.y, r0.y + 200.0 + GAP);
+        assert_eq!(layout.visible(0.0, 150.0), 0..2);
+        assert_eq!(layout.visible(250.0, 150.0), 2..3);
+        assert_eq!(layout.current_page(layout.scroll_to(2), 100.0), 2);
     }
 }

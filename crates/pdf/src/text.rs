@@ -13,15 +13,10 @@ pub(crate) struct CharBox {
     pub(crate) rect: NormRect,
 }
 
-/// A page's characters, and whether it also draws text PDFium reads as
-/// blank (see `has_unreadable_text`).
-pub(crate) fn char_boxes(
-    doc: &PdfDocument,
-    page: usize,
-) -> Result<(Vec<CharBox>, bool), PdfiumError> {
-    let pdf_page = load_page(doc, page)?;
+/// Extracts a page's character boxes from already-loaded page and text objects,
+/// and reports whether it draws text PDFium reads as blank.
+pub(crate) fn char_boxes_of(pdf_page: &PdfPage, text: &PdfPageText) -> (Vec<CharBox>, bool) {
     let size = (pdf_page.width().value, pdf_page.height().value);
-    let text = pdf_page.text()?;
     let boxes = text
         .chars()
         .iter()
@@ -38,8 +33,19 @@ pub(crate) fn char_boxes(
                 }),
         })
         .collect::<Vec<_>>();
-    let unreadable = has_unreadable_text(&pdf_page, &text, &boxes);
-    Ok((boxes, unreadable))
+    let unreadable = has_unreadable_text(pdf_page, text, &boxes);
+    (boxes, unreadable)
+}
+
+/// A page's characters, and whether it also draws text PDFium reads as
+/// blank (see `has_unreadable_text`).
+pub(crate) fn char_boxes(
+    doc: &PdfDocument,
+    page: usize,
+) -> Result<(Vec<CharBox>, bool), PdfiumError> {
+    let pdf_page = load_page(doc, page)?;
+    let text = pdf_page.text()?;
+    Ok(char_boxes_of(&pdf_page, &text))
 }
 
 /// A page's character boxes, shared so handing them out copies nothing.

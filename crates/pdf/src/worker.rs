@@ -5,7 +5,75 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
 
+use domain::config::{cache_dir, fnv1a, write_atomic_bytes};
+use domain::geometry::ViewTransform;
+
 use crate::*;
+
+const COVER_MAGIC: &[u8; 4] = b"LCOV";
+const COVER_HEADER_LEN: usize = 40;
+
+fn modified_nanos(path: &Path) -> Option<u128> {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+}
+
+fn cover_cache_path(path: &Path) -> Option<PathBuf> {
+    let key = fnv1a(path.to_string_lossy().as_bytes());
+    Some(
+        cache_dir()?
+            .join("covers")
+            .join(format!("{key:016x}.cover")),
+    )
+}
+
+fn read_cached_cover(cache_path: &Path, mtime_ns: u128, req_width: u32) -> Option<(Bitmap, usize)> {
+    let bytes = std::fs::read(cache_path).ok()?;
+    if bytes.len() < COVER_HEADER_LEN || &bytes[0..4] != COVER_MAGIC {
+        return None;
+    }
+    let stored_mtime = u128::from_le_bytes(bytes[4..20].try_into().ok()?);
+    let stored_req_w = u32::from_le_bytes(bytes[20..24].try_into().ok()?);
+    let width = u32::from_le_bytes(bytes[24..28].try_into().ok()?);
+    let height = u32::from_le_bytes(bytes[28..32].try_into().ok()?);
+    let pages = u64::from_le_bytes(bytes[32..40].try_into().ok()?) as usize;
+    if stored_mtime != mtime_ns || stored_req_w != req_width {
+        return None;
+    }
+    let expected = width as usize * height as usize * 3;
+    if bytes.len() != COVER_HEADER_LEN + expected {
+        return None;
+    }
+    Some((
+        Bitmap {
+            width,
+            height,
+            rgb: bytes[COVER_HEADER_LEN..].to_vec(),
+        },
+        pages,
+    ))
+}
+
+fn write_cached_cover(
+    cache_path: &Path,
+    mtime_ns: u128,
+    req_width: u32,
+    bitmap: &Bitmap,
+    pages: usize,
+) {
+    let mut out = Vec::with_capacity(COVER_HEADER_LEN + bitmap.rgb.len());
+    out.extend_from_slice(COVER_MAGIC);
+    out.extend_from_slice(&mtime_ns.to_le_bytes());
+    out.extend_from_slice(&req_width.to_le_bytes());
+    out.extend_from_slice(&bitmap.width.to_le_bytes());
+    out.extend_from_slice(&bitmap.height.to_le_bytes());
+    out.extend_from_slice(&(pages as u64).to_le_bytes());
+    out.extend_from_slice(&bitmap.rgb);
+    let _ = write_atomic_bytes(cache_path, &out);
+}
 
 #[derive(Default)]
 pub(crate) struct Queue {
@@ -37,6 +105,8 @@ pub(crate) struct OpenDoc<'a> {
     pub(crate) password: Option<String>,
     /// Page labels, once read.
     pub(crate) labels: Option<Vec<String>>,
+    /// Cached content box for margin cropping (`Some(None)` = scanned and has no margins).
+    pub(crate) detected_crop: Option<Option<NormRect>>,
     /// For text the PDF draws but maps to nothing; loaded on first need.
     pub(crate) recovery: Recovering,
     /// Each page's text, squashed (see `squash`), once a search has read
@@ -205,12 +275,14 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
     // Character boxes of recently selected pages, reused while dragging.
     let mut char_cache: VecDeque<(usize, Chars)> = VecDeque::new();
     let mut tint = PageTint::None;
+    let mut transform = ViewTransform::default();
     let mut doc_gen: u64 = 0;
     let mut render_gen: u64 = 0;
     // Whether the live document's page labels are still to be sent.
     let mut labels_due = false;
     let mut link: Option<(usize, (f32, f32))> = None;
     let mut select_line: Option<(usize, (f32, f32))> = None;
+    let mut crop_job: Option<(u64, usize)> = None;
     let mut files: Option<FilesJob> = None;
     let mut file_texts = FileTexts::default();
     let mut article: Option<ArticleJob> = None;
@@ -226,6 +298,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                 || select.is_some()
                 || select_line.is_some()
                 || link.is_some()
+                || crop_job.is_some()
                 || article.is_some());
         let background = files.is_some()
             || !covers.0.is_empty()
@@ -253,6 +326,8 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
             }) => {
                 doc_gen = generation;
                 render_gen = render_generation;
+                transform = ViewTransform::default();
+                crop_job = None;
                 renders = Queue::default();
                 thumbs = Queue::default();
                 search = None;
@@ -291,6 +366,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                             path: path.clone(),
                             password: password.clone(),
                             labels: None,
+                            detected_crop: None,
                             recovery: Recovering::Unloaded,
                             modified: stamp,
                             doc,
@@ -364,6 +440,24 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                 render_gen = generation;
                 continue;
             }
+            Some(Request::SetView {
+                transform: value,
+                generation,
+            }) => {
+                transform = value;
+                render_gen = generation;
+                renders = Queue::default();
+                thumbs = Queue::default();
+                continue;
+            }
+            Some(Request::DetectCrop { generation, page }) => {
+                crop_job = Some((generation, page));
+                continue;
+            }
+            Some(Request::DropDocument { path }) => {
+                documents.retain(|d| d.path != path);
+                continue;
+            }
             Some(Request::SearchFiles { id, query, paths }) => {
                 let query: Vec<char> = query.trim().chars().map(fold).collect();
                 files = (!query.is_empty()).then(|| FilesJob {
@@ -418,11 +512,27 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
         // urgent to do, so reading never waits for them.
         if !urgent {
             if let Some(path) = covers.0.pop_front() {
+                let width_px = covers.1;
+                let stamp_ns = modified_nanos(&path);
+                let cache_path = cover_cache_path(&path);
+                if let (Some(cp), Some(stamp)) = (cache_path.as_deref(), stamp_ns) {
+                    if let Some((bitmap, pages)) = read_cached_cover(cp, stamp, width_px) {
+                        on_event(Event::Cover {
+                            path,
+                            bitmap: convert(bitmap),
+                            pages,
+                        });
+                        continue;
+                    }
+                }
                 // Untinted: a cover shows the document as it is.
                 let cover = open(&pdfium, &path, None).and_then(|(doc, sizes)| {
-                    render(&doc, 0, covers.1, PageTint::None, false).map(|b| (b, sizes.len()))
+                    render(&doc, 0, width_px, PageTint::None, false).map(|b| (b, sizes.len()))
                 });
                 if let Ok((bitmap, pages)) = cover {
+                    if let (Some(cp), Some(stamp)) = (cache_path.as_deref(), stamp_ns) {
+                        write_cached_cover(cp, stamp, width_px, &bitmap, pages);
+                    }
                     on_event(Event::Cover {
                         path,
                         bitmap: convert(bitmap),
@@ -444,6 +554,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
             doc,
             texts,
             labels,
+            detected_crop,
             path,
             password,
             page_sizes,
@@ -461,6 +572,19 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
             on_event(Event::Link {
                 generation: doc_gen,
                 target,
+            });
+        } else if let Some((crop_gen, page)) = crop_job.take() {
+            let crop = match *detected_crop {
+                Some(cached) => cached,
+                None => {
+                    let estimated = crate::render::detect_crop(doc, page_sizes.len(), page);
+                    *detected_crop = Some(estimated);
+                    estimated
+                }
+            };
+            on_event(Event::CropDetected {
+                generation: crop_gen,
+                crop,
             });
         } else if let Some((page, point)) = select_line.take() {
             let boxes = cached_chars(doc, &mut char_cache, page, &mut recover);
@@ -509,7 +633,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
         } else if let Some(page) = renders.previews.pop_front() {
             let width_px = (renders.width_px / PREVIEW_DIVISOR).max(1);
             // The full render follows; a failed preview needs no message.
-            if let Ok(bitmap) = render(doc, page, width_px, tint, false) {
+            if let Ok(bitmap) = render_transformed(doc, page, width_px, tint, false, transform) {
                 on_event(Event::Rendered {
                     generation: render_gen,
                     page,
@@ -519,7 +643,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
             }
         } else if let Some(page) = renders.pages.pop_front() {
             let width_px = renders.width_px;
-            match render(doc, page, width_px, tint, true) {
+            match render_transformed(doc, page, width_px, tint, true, transform) {
                 Ok(bitmap) => on_event(Event::Rendered {
                     generation: render_gen,
                     page,
@@ -534,7 +658,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
         } else if let Some(job) = &mut search {
             if let Some(page) = job.next_page() {
                 let text = texts.get_mut(page);
-                if let Ok(matches) = search_page(doc, page, &job.query, text) {
+                if let Ok(matches) = search_page(doc, page, &job.query, text, &mut recover) {
                     if !matches.is_empty() {
                         job.hits.push(page);
                         on_event(Event::SearchHits {
@@ -552,7 +676,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
         } else if let Some(page) = thumbs.pages.pop_front() {
             let width_px = thumbs.width_px;
             // A missing thumbnail isn't worth interrupting the reader for.
-            if let Ok(bitmap) = render(doc, page, width_px, tint, false) {
+            if let Ok(bitmap) = render_transformed(doc, page, width_px, tint, false, transform) {
                 on_event(Event::Thumbnail {
                     generation: render_gen,
                     page,
@@ -572,5 +696,30 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cover_cache_round_trips_and_validates_mtime_and_width() {
+        let dir = std::env::temp_dir().join(format!("leme-cover-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("sample.cover");
+        let bmp = Bitmap {
+            width: 2,
+            height: 2,
+            rgb: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        };
+        write_cached_cover(&path, 12345, 220, &bmp, 42);
+        let (loaded, pages) = read_cached_cover(&path, 12345, 220).expect("hit");
+        assert_eq!(pages, 42);
+        assert_eq!((loaded.width, loaded.height), (2, 2));
+        assert_eq!(loaded.rgb, bmp.rgb);
+        assert!(read_cached_cover(&path, 99999, 220).is_none());
+        assert!(read_cached_cover(&path, 12345, 300).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -191,7 +191,7 @@ impl App {
     /// The document of a session hit finished opening: go to the page
     /// and highlight the matches, as if searched in the document.
     pub(super) fn show_hit(&mut self, window: &AppWindow, page: usize, query: &str) {
-        self.viewer.go_to_page(window, page);
+        self.viewer.jump_to_page(window, page);
         window.set_search_text(query.into());
         self.viewer.search_edited(window, query);
     }

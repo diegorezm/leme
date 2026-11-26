@@ -967,3 +967,30 @@ msgstr "Não foi possível ler as notas ({}); alterações não sobrescreverão 
 
 msgid "Notes file has a syntax error; fix it before saving"
 msgstr "O arquivo de notas tem um erro de sintaxe; corrija-o antes de salvar"
+
+msgid "Jump back"
+msgstr "Voltar no histórico"
+
+msgid "Jump forward"
+msgstr "Avançar no histórico"
+
+msgid "Rotate clockwise"
+msgstr "Girar no sentido horário"
+
+msgid "Rotate counter-clockwise"
+msgstr "Girar no sentido anti-horário"
+
+msgid "Crop page margins"
+msgstr "Recortar margens"
+
+msgid "Two-page view"
+msgstr "Visualização em duas páginas"
+
+msgid "Reload document"
+msgstr "Recarregar documento"
+
+msgid "Detecting page margins…"
+msgstr "Detectando margens da página…"
+
+msgid "No margins to crop"
+msgstr "Nenhuma margem para recortar"

@@ -330,7 +330,7 @@ impl Viewer {
 
     pub fn side_item_clicked(&mut self, window: &AppWindow, index: usize) {
         if let Some(&page) = self.side_pages.get(index) {
-            self.go_to_page(window, page);
+            self.jump_to_page(window, page);
         }
     }
 
@@ -364,7 +364,7 @@ impl Viewer {
     pub fn link(&mut self, window: &AppWindow, target: Option<LinkTarget>) -> Option<String> {
         match target? {
             LinkTarget::Page(page) if page < self.page_sizes.len() => {
-                self.go_to_page(window, page);
+                self.jump_to_page(window, page);
                 None
             }
             LinkTarget::Page(_) => None,

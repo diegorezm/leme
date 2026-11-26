@@ -72,8 +72,9 @@ impl Viewer {
         let old_height = self.layout.content_height();
         let top = -window.get_viewport_y();
 
+        let sizes = self.effective_sizes();
         let factor = self.zoom_factor(window);
-        self.layout = Layout::new(&self.page_sizes, window.get_reader_width(), factor);
+        self.layout = Layout::new_with_mode(&sizes, window.get_reader_width(), factor, self.two_up);
         self.update_zoom_display(window);
         window.set_content_width(self.layout.content_width());
         window.set_content_height(self.layout.content_height());
@@ -85,8 +86,8 @@ impl Viewer {
         }
         self.clamp_x(window);
 
-        if self.thumb_layout.page_count() != self.page_sizes.len() {
-            self.thumb_layout = Layout::new(&self.page_sizes, self.sidebar_width, 1.0);
+        if self.thumb_layout.page_count() != sizes.len() {
+            self.thumb_layout = Layout::new(&sizes, self.sidebar_width, 1.0);
             window.set_thumbs_content_height(self.thumb_layout.content_height());
         }
         self.refresh(window);

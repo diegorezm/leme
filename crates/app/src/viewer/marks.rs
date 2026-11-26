@@ -88,7 +88,11 @@ impl Viewer {
             return;
         };
         // Anchor below the annotation's last line.
-        if let (Some(rect), Some(r)) = (self.layout.rect(a.page), a.rects.last()) {
+        let vt = self.view_transform();
+        if let (Some(rect), Some(r)) = (
+            self.layout.rect(a.page),
+            a.rects.last().and_then(|r| vt.to_view(*r)),
+        ) {
             window.set_note_tip_x(
                 rect.x + (r.x + r.width / 2.0) * rect.width + window.get_viewport_x(),
             );
@@ -357,7 +361,7 @@ impl Viewer {
         (export::export(&self.annotations, format, &opts), count)
     }
 
-    /// Converts a reader point to a page and a point in page fractions.
+    /// Converts a reader point to a page and a point in unrotated, uncropped page fractions.
     pub(super) fn page_point(
         &self,
         window: &AppWindow,
@@ -366,20 +370,26 @@ impl Viewer {
     ) -> Option<(usize, (f32, f32))> {
         let cx = x - window.get_viewport_x();
         let cy = y - window.get_viewport_y();
-        let page = self.layout.visible(cy, 0.01).start;
-        let rect = self.layout.rect(page)?;
-        let inside =
-            cx >= rect.x && cx <= rect.x + rect.width && cy >= rect.y && cy <= rect.y + rect.height;
-        inside.then(|| {
-            (
-                page,
-                ((cx - rect.x) / rect.width, (cy - rect.y) / rect.height),
-            )
-        })
+        let vt = self.view_transform();
+        for page in self.layout.visible(cy, 0.01) {
+            let Some(rect) = self.layout.rect(page) else {
+                continue;
+            };
+            let inside = cx >= rect.x
+                && cx <= rect.x + rect.width
+                && cy >= rect.y
+                && cy <= rect.y + rect.height;
+            if inside {
+                let vx = (cx - rect.x) / rect.width;
+                let vy = (cy - rect.y) / rect.height;
+                return Some((page, vt.point_to_doc((vx, vy))));
+            }
+        }
+        None
     }
 
     /// The page under a reader point (or nearest it) and the point in
-    /// fractions of that page, clamped to the page.
+    /// unrotated, uncropped fractions of that page, clamped to the page.
     pub(super) fn page_point_clamped(
         &self,
         window: &AppWindow,
@@ -388,17 +398,22 @@ impl Viewer {
     ) -> (usize, (f32, f32)) {
         let cx = x - window.get_viewport_x();
         let cy = y - window.get_viewport_y();
-        let page = self.layout.visible(cy, 0.01).start;
+        let visible = self.layout.visible(cy, 0.01);
+        let page = visible
+            .clone()
+            .filter_map(|p| {
+                self.layout
+                    .rect(p)
+                    .map(|r| (p, (cx - (r.x + r.width / 2.0)).abs()))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map_or(visible.start, |(p, _)| p);
         let Some(rect) = self.layout.rect(page) else {
             return (page, (0.0, 0.0));
         };
-        (
-            page,
-            (
-                ((cx - rect.x) / rect.width).clamp(0.0, 1.0),
-                ((cy - rect.y) / rect.height).clamp(0.0, 1.0),
-            ),
-        )
+        let vx = ((cx - rect.x) / rect.width).clamp(0.0, 1.0);
+        let vy = ((cy - rect.y) / rect.height).clamp(0.0, 1.0);
+        (page, self.view_transform().point_to_doc((vx, vy)))
     }
 
     /// Positions the toolbar above the selection or annotation.
@@ -422,6 +437,7 @@ impl Viewer {
         let Some(rect) = self.layout.rect(page) else {
             return;
         };
+        let r = self.view_transform().to_view(r).unwrap_or(r);
         let x = rect.x + (r.x + r.width / 2.0) * rect.width + window.get_viewport_x();
         let y = rect.y + r.y * rect.height + window.get_viewport_y();
         window.set_popup_x(x);

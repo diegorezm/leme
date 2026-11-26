@@ -68,20 +68,24 @@ impl Viewer {
         let Some(search) = &self.search else {
             return ModelRc::default();
         };
+        let vt = self.view_transform();
         let items: Vec<Highlight> = search
             .on_page(page)
-            .map(|(r, current)| Highlight {
-                x: r.x,
-                y: r.y,
-                width: r.width,
-                height: r.height,
-                current,
+            .filter_map(|(r, current)| {
+                vt.to_view(*r).map(|r| Highlight {
+                    x: r.x,
+                    y: r.y,
+                    width: r.width,
+                    height: r.height,
+                    current,
+                })
             })
             .collect();
         model_or_default(items)
     }
 
     pub(super) fn marks(&self, page: usize) -> ModelRc<Mark> {
+        let vt = self.view_transform();
         let mut items: Vec<Mark> = Vec::new();
         for a in self.annotations.on_page(page) {
             let color = self.shade(&a.color);
@@ -90,8 +94,10 @@ impl Viewer {
                 Kind::Underline => 1,
                 Kind::Strikethrough => 2,
             };
-            let last = a.rects.len().saturating_sub(1);
-            items.extend(a.rects.iter().enumerate().map(|(i, r)| Mark {
+            let transformed: Vec<NormRect> =
+                a.rects.iter().filter_map(|r| vt.to_view(*r)).collect();
+            let last = transformed.len().saturating_sub(1);
+            items.extend(transformed.into_iter().enumerate().map(|(i, r)| Mark {
                 x: r.x,
                 y: r.y,
                 width: r.width,
@@ -103,14 +109,16 @@ impl Viewer {
         }
         let selected = self.selection.iter().flat_map(|s| &s.parts);
         if let Some(part) = selected.into_iter().find(|p| p.page == page) {
-            items.extend(part.rects.iter().map(|r| Mark {
-                x: r.x,
-                y: r.y,
-                width: r.width,
-                height: r.height,
-                kind: 3,
-                color: Color::default(),
-                note: false,
+            items.extend(part.rects.iter().filter_map(|r| {
+                vt.to_view(*r).map(|r| Mark {
+                    x: r.x,
+                    y: r.y,
+                    width: r.width,
+                    height: r.height,
+                    kind: 3,
+                    color: Color::default(),
+                    note: false,
+                })
             }));
         }
         model_or_default(items)

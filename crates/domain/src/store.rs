@@ -23,12 +23,23 @@ use crate::layout::Zoom;
 pub const MAX_RECENT: usize = 50;
 pub const DEFAULT_SESSION: &str = "main";
 
+/// Per-document visual settings persisted in `state.txt`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DocView {
+    /// Clockwise rotation in degrees: 0, 90, 180, or 270.
+    pub rotation: u16,
+    pub crop_margins: bool,
+    pub two_up: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Recent {
     pub path: PathBuf,
     /// Zero-based page the reader was on.
     pub page: usize,
     pub zoom: Zoom,
+    pub fingerprint: Option<String>,
+    pub view: DocView,
 }
 
 /// A named set of tabs, like a tmux session.
@@ -86,6 +97,21 @@ impl Store {
             };
             match key.trim() {
                 "recent" => recent.extend(parse_recent(value)),
+                "recent-fp" => {
+                    if let Some((fp, path)) = value.split_once('\t') {
+                        let p = Path::new(path);
+                        if let Some(r) = recent.iter_mut().find(|r| r.path == p) {
+                            r.fingerprint = Some(fp.trim().to_owned()).filter(|s| !s.is_empty());
+                        }
+                    }
+                }
+                "view" => {
+                    if let Some((view, path)) = parse_view(value) {
+                        if let Some(r) = recent.iter_mut().find(|r| r.path == path) {
+                            r.view = view;
+                        }
+                    }
+                }
                 "session" if !value.trim().is_empty() => {
                     let name = unique_name(&sessions, value.trim());
                     sessions.push(Session::new(&name));
@@ -126,6 +152,18 @@ impl Store {
                 r.zoom.to_token(),
                 r.path.display()
             ));
+            if let Some(fp) = &r.fingerprint {
+                out.push_str(&format!("recent-fp={fp}\t{}\n", r.path.display()));
+            }
+            if r.view != DocView::default() {
+                out.push_str(&format!(
+                    "view={}\t{}\t{}\t{}\n",
+                    r.view.rotation,
+                    u8::from(r.view.crop_margins),
+                    u8::from(r.view.two_up),
+                    r.path.display()
+                ));
+            }
         }
         for s in &self.sessions {
             out.push_str(&format!("session={}\n", s.name));
@@ -144,6 +182,17 @@ impl Store {
 
     pub fn recent_for(&self, path: &Path) -> Option<&Recent> {
         self.recent.iter().find(|r| r.path == path)
+    }
+
+    /// Finds `path`, or falls back to a moved entry with matching `fingerprint`
+    /// whose old path no longer exists on disk.
+    pub fn recent_for_file(&self, path: &Path, fingerprint: Option<&str>) -> Option<&Recent> {
+        self.recent_for(path).or_else(|| {
+            let fp = fingerprint?;
+            self.recent
+                .iter()
+                .find(|r| r.fingerprint.as_deref() == Some(fp) && !r.path.exists())
+        })
     }
 
     /// Records a document as the most recent one.
@@ -195,7 +244,25 @@ fn parse_recent(value: &str) -> Option<Recent> {
         path: PathBuf::from(path),
         page,
         zoom: Zoom::from_token(zoom).unwrap_or(Zoom::FitWidth),
+        fingerprint: None,
+        view: DocView::default(),
     })
+}
+
+fn parse_view(value: &str) -> Option<(DocView, PathBuf)> {
+    let mut parts = value.splitn(4, '\t');
+    let rotation: u16 = parts.next()?.trim().parse().ok()?;
+    let crop = parts.next()?.trim() == "1";
+    let two_up = parts.next()?.trim() == "1";
+    let path = parts.next().filter(|p| !p.is_empty())?;
+    Some((
+        DocView {
+            rotation: crate::geometry::ViewTransform::normalize_rotation(rotation),
+            crop_margins: crop,
+            two_up,
+        },
+        PathBuf::from(path),
+    ))
 }
 
 fn file_path() -> Option<PathBuf> {
@@ -211,6 +278,12 @@ mod tests {
             path: PathBuf::from(path),
             page,
             zoom: Zoom::Custom(1.5),
+            fingerprint: Some("fp1".into()),
+            view: DocView {
+                rotation: 90,
+                crop_margins: true,
+                two_up: false,
+            },
         }
     }
 
@@ -255,7 +328,9 @@ mod tests {
             vec![Recent {
                 path: "C:\\b.pdf".into(),
                 page: 3,
-                zoom: Zoom::FitWidth
+                zoom: Zoom::FitWidth,
+                fingerprint: None,
+                view: DocView::default(),
             }]
         );
         assert_eq!(store.sessions[0].active, None);

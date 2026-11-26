@@ -18,6 +18,11 @@ impl App {
                 ..
             } => {
                 self.viewer.opened(window, title, page_sizes, outline);
+                if let Some((old, new)) = self.viewer.take_migrated_path() {
+                    self.study.migrate_path(&old, &new);
+                    let _ = self.study.save();
+                    self.show_study_time(window);
+                }
                 self.tabs_changed(window);
                 self.show_pending_article();
                 if let Some((path, page, query)) = self.open_at.take() {
@@ -161,6 +166,9 @@ impl App {
                     );
                 }
             }
+            Event::CropDetected { generation, crop } => {
+                self.viewer.crop_detected(window, generation, crop);
+            }
             Event::Error(message) => {
                 self.flash(window, &message);
             }
@@ -195,7 +203,7 @@ impl App {
         match page {
             Some(page) => {
                 window.set_status("".into());
-                self.viewer.go_to_page(window, page);
+                self.viewer.jump_to_page(window, page);
             }
             None => self.flash(window, &trf("Art. {} not found", &[&number])),
         }

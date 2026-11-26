@@ -52,6 +52,55 @@ pub fn starts_article(text: &str, number: u32) -> bool {
     })
 }
 
+/// A reading position recorded before a non-contiguous jump.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JumpEntry {
+    pub page: usize,
+    /// Vertical position within `page`, as a fraction `[0..1]`.
+    pub fraction: f32,
+}
+
+const JUMP_LIMIT: usize = 64;
+
+/// Back/forward navigation history for links, outline jumps, and search.
+#[derive(Debug, Default)]
+pub struct JumpList {
+    back: Vec<JumpEntry>,
+    forward: Vec<JumpEntry>,
+}
+
+impl JumpList {
+    pub fn record(&mut self, entry: JumpEntry) {
+        if self.back.last().is_some_and(|last| {
+            last.page == entry.page && (last.fraction - entry.fraction).abs() < 0.05
+        }) {
+            return;
+        }
+        self.back.push(entry);
+        if self.back.len() > JUMP_LIMIT {
+            self.back.remove(0);
+        }
+        self.forward.clear();
+    }
+
+    pub fn back(&mut self, current: JumpEntry) -> Option<JumpEntry> {
+        let target = self.back.pop()?;
+        self.forward.push(current);
+        Some(target)
+    }
+
+    pub fn forward(&mut self, current: JumpEntry) -> Option<JumpEntry> {
+        let target = self.forward.pop()?;
+        self.back.push(current);
+        Some(target)
+    }
+
+    pub fn clear(&mut self) {
+        self.back.clear();
+        self.forward.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,5 +142,22 @@ nos termos do art. 38 desta lei";
         assert!(!starts_article(page, 38));
         assert!(starts_article("  Art. 5º Todos são iguais", 5));
         assert!(!starts_article("Art. 370. Outro", 37));
+    }
+
+    #[test]
+    fn jump_list_back_and_forward() {
+        let mut jumps = JumpList::default();
+        let e = |page, fraction| JumpEntry { page, fraction };
+        assert_eq!(jumps.back(e(0, 0.0)), None);
+        jumps.record(e(2, 0.2));
+        // Nearby position on the same page is deduplicated.
+        jumps.record(e(2, 0.22));
+        jumps.record(e(10, 0.5));
+        assert_eq!(jumps.back(e(25, 0.1)), Some(e(10, 0.5)));
+        assert_eq!(jumps.back(e(10, 0.5)), Some(e(2, 0.2)));
+        assert_eq!(jumps.forward(e(2, 0.2)), Some(e(10, 0.5)));
+        // A new jump clears forward history.
+        jumps.record(e(11, 0.0));
+        assert_eq!(jumps.forward(e(11, 0.0)), None);
     }
 }
