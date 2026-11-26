@@ -15,15 +15,18 @@ impl App {
                 title,
                 page_sizes,
                 outline,
+                fingerprint,
+                modified,
                 ..
             } => {
-                self.viewer.opened(window, title, page_sizes, outline);
+                self.viewer
+                    .opened(window, title, page_sizes, outline, fingerprint, modified);
                 if let Some((old, new)) = self.viewer.take_migrated_path() {
                     self.study.migrate_path(&old, &new);
                     let _ = self.study.save();
-                    self.show_study_time(window);
                 }
-                self.tabs_changed(window);
+                self.clock.reset();
+                self.show_study_time(window);
                 self.show_pending_article();
                 if let Some((path, page, query)) = self.open_at.take() {
                     if self.viewer.is_showing(&path) {

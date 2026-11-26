@@ -61,6 +61,12 @@ impl Viewer {
     }
 
     pub fn close_search(&mut self, window: &AppWindow) {
+        self.reset_search(window);
+        self.refresh(window);
+    }
+
+    /// Clears search state and UI inputs without triggering a viewer refresh.
+    pub(super) fn reset_search(&mut self, window: &AppWindow) {
         if self.search.take().is_some() {
             self.next_search_id += 1;
             self.worker.send(Request::Search {
@@ -71,7 +77,6 @@ impl Viewer {
         }
         window.set_search_text("".into());
         window.set_search_status("".into());
-        self.refresh(window);
     }
 
     /// Scrolls the current match into view if it isn't already.

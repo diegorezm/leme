@@ -38,7 +38,7 @@ impl App {
         let already = self.active == Some(index) && self.viewer.is_showing(&path);
         self.active = Some(index);
         if !already {
-            self.viewer.remember_position();
+            self.viewer.record_position();
             self.viewer.clear_selection(window);
             if !self.viewer.open(window, path) {
                 self.tabs.remove(index);

@@ -128,6 +128,8 @@ pub enum Event<B = Bitmap> {
         title: String,
         page_sizes: Vec<(f32, f32)>,
         outline: Vec<OutlineItem>,
+        fingerprint: Option<String>,
+        modified: Option<std::time::SystemTime>,
     },
     /// The document is encrypted; `retry` is true if a password was wrong.
     PasswordNeeded {
@@ -547,20 +549,27 @@ mod tests {
         let t = Instant::now();
         let mut no_recover = |_| Vec::new();
         for page in 0..sizes.len() {
-            search_page(&doc, page, "holmes", None, &mut no_recover).unwrap();
+            search_page(&doc, page, "holmes", "holmes", None, Some(&mut no_recover)).unwrap();
         }
         println!("search all pages: {:.0} ms", ms(t));
         // Typing "holmes" letter by letter, each search narrowing the last.
         let t = Instant::now();
         let mut last: Option<SearchJob> = None;
-        let mut texts = vec![None; sizes.len()];
+        let mut texts: Vec<Option<PageSearchCache>> = (0..sizes.len()).map(|_| None).collect();
         for end in 1..="holmes".len() {
             let mut job = SearchJob::new(0, "holmes"[..end].into(), sizes.len(), 0, last.take());
             while let Some(page) = job.next_page() {
                 let text = texts.get_mut(page);
-                if !search_page(&doc, page, &job.query, text, &mut no_recover)
-                    .unwrap()
-                    .is_empty()
+                if !search_page(
+                    &doc,
+                    page,
+                    &job.query,
+                    &job.squashed_query,
+                    text,
+                    Some(&mut no_recover),
+                )
+                .unwrap()
+                .is_empty()
                 {
                     job.hits.push(page);
                 }
@@ -570,7 +579,15 @@ mod tests {
         println!("typed search, 6 queries: {:.0} ms", ms(t));
         let t = Instant::now();
         for page in 0..sizes.len() {
-            search_page(&doc, page, "watson", texts.get_mut(page), &mut no_recover).unwrap();
+            search_page(
+                &doc,
+                page,
+                "watson",
+                "watson",
+                texts.get_mut(page),
+                Some(&mut no_recover),
+            )
+            .unwrap();
         }
         println!("search again, text cached: {:.0} ms", ms(t));
         let t = Instant::now();
@@ -608,36 +625,156 @@ mod tests {
     }
 
     #[test]
-    fn pack_rgb_transformed_crops_and_rotates() {
+    fn render_geometry_maps_crop_and_rotation() {
         use domain::geometry::ViewTransform;
-        // 3x2 pixel buffer:
-        // row 0: [R=(1,0,0), G=(2,0,0), B=(3,0,0)]
-        // row 1: [C=(4,0,0), M=(5,0,0), Y=(6,0,0)]
-        let mut buf = Vec::new();
-        for v in 1..=6u8 {
-            buf.extend_from_slice(&[v, 0, 0, 255]);
-        }
-        let luts = tint_lut(PageTint::None);
-        // Rotated 90 CW without crop -> 2x3; top-left is old bottom-left (4).
-        let (w, h, rgb) = crate::render::pack_rgb_transformed(
-            &buf,
-            3,
-            2,
-            &luts,
+        // 200x400 page cropped to right/bottom half (x=0.5, y=0.25, w=0.5, h=0.5) => 100x200.
+        let crop = NormRect {
+            x: 0.5,
+            y: 0.25,
+            width: 0.5,
+            height: 0.5,
+        };
+        let (ow, oh, fw, fh, sx, sy, rot) = crate::render::render_geometry(
+            (200.0, 400.0),
+            100,
             ViewTransform {
-                rotation: 90,
-                crop: None,
+                rotation: 0,
+                crop: Some(crop),
             },
         );
-        assert_eq!((w, h), (2, 3));
-        assert_eq!([rgb[0], rgb[3]], [4, 1]);
-        assert_eq!([rgb[6], rgb[9]], [5, 2]);
-        assert_eq!([rgb[12], rgb[15]], [6, 3]);
+        assert_eq!(
+            (ow, oh, fw, fh, sx, sy, rot),
+            (100, 200, 200, 400, -100, -100, 0)
+        );
+
+        // Same crop rotated 90 CW => display size is 200x100; at width 200 -> 200x100.
+        // Full rotated page is 400x200; x in [1-(0.25+0.5)=0.25..0.75] => sx=-100; y in [0.5..1.0] => sy=-100.
+        let (ow, oh, fw, fh, sx, sy, rot) = crate::render::render_geometry(
+            (200.0, 400.0),
+            200,
+            ViewTransform {
+                rotation: 90,
+                crop: Some(crop),
+            },
+        );
+        assert_eq!(
+            (ow, oh, fw, fh, sx, sy, rot),
+            (200, 100, 400, 200, -100, -100, 90)
+        );
+
+        // Rotated 180 => x in [0..0.5], y in [0.25..0.75].
+        let (ow, oh, fw, fh, sx, sy, rot) = crate::render::render_geometry(
+            (200.0, 400.0),
+            100,
+            ViewTransform {
+                rotation: 180,
+                crop: Some(crop),
+            },
+        );
+        assert_eq!(
+            (ow, oh, fw, fh, sx, sy, rot),
+            (100, 200, 200, 400, 0, -100, 180)
+        );
+
+        // Rotated 270 => x in [0.25..0.75], y in [0..0.5].
+        let (ow, oh, fw, fh, sx, sy, rot) = crate::render::render_geometry(
+            (200.0, 400.0),
+            200,
+            ViewTransform {
+                rotation: 270,
+                crop: Some(crop),
+            },
+        );
+        assert_eq!(
+            (ow, oh, fw, fh, sx, sy, rot),
+            (200, 100, 400, 200, -100, 0, 270)
+        );
+    }
+
+    /// Needs PDFium; skipped when the library can't be loaded.
+    #[test]
+    fn render_transformed_matches_view_transform() {
+        use domain::geometry::ViewTransform;
+        let Ok(pdfium) = bind() else {
+            eprintln!("PDFium unavailable, skipping");
+            return;
+        };
+        let mut doc = pdfium.create_new_pdf().unwrap();
+        let (pw, ph) = (200.0_f32, 400.0_f32);
+        let mut page = doc
+            .pages_mut()
+            .create_page_at_end(PdfPagePaperSize::Custom(
+                PdfPoints::new(pw),
+                PdfPoints::new(ph),
+            ))
+            .unwrap();
+        // Asymmetric dark rectangle in top-down normalized coordinates.
+        let mark = NormRect {
+            x: 0.25,
+            y: 0.20,
+            width: 0.20,
+            height: 0.15,
+        };
+        // PDF points have origin at bottom-left.
+        let pdf_rect = PdfRect::new(
+            PdfPoints::new(ph * (1.0 - (mark.y + mark.height))),
+            PdfPoints::new(pw * mark.x),
+            PdfPoints::new(ph * (1.0 - mark.y)),
+            PdfPoints::new(pw * (mark.x + mark.width)),
+        );
+        page.objects_mut()
+            .create_path_object_rect(pdf_rect, None, None, Some(PdfColor::BLACK))
+            .unwrap();
+        page.regenerate_content().unwrap();
+        drop(page);
+
+        let crop = NormRect {
+            x: 0.15,
+            y: 0.10,
+            width: 0.70,
+            height: 0.75,
+        };
+        for crop_opt in [None, Some(crop)] {
+            for rotation in [0u16, 90, 180, 270] {
+                let vt = ViewTransform {
+                    rotation,
+                    crop: crop_opt,
+                };
+                let bmp = render_transformed(&doc, 0, 140, PageTint::None, false, vt).unwrap();
+                let mut sum_x = 0.0_f64;
+                let mut sum_y = 0.0_f64;
+                let mut count = 0usize;
+                for y in 0..bmp.height {
+                    for x in 0..bmp.width {
+                        let idx = (y as usize * bmp.width as usize + x as usize) * 3;
+                        if bmp.rgb[idx] < 64 {
+                            sum_x += (x as f64 + 0.5) / bmp.width as f64;
+                            sum_y += (y as f64 + 0.5) / bmp.height as f64;
+                            count += 1;
+                        }
+                    }
+                }
+                assert!(
+                    count > 10,
+                    "missing ink for rot={rotation} crop={crop_opt:?}"
+                );
+                let cx = (sum_x / count as f64) as f32;
+                let cy = (sum_y / count as f64) as f32;
+                let expected = vt.to_view(mark).unwrap();
+                let ex = expected.x + expected.width / 2.0;
+                let ey = expected.y + expected.height / 2.0;
+                assert!(
+                    (cx - ex).abs() < 0.03 && (cy - ey).abs() < 0.03,
+                    "mismatch for rot={rotation} crop={crop_opt:?}: got ({cx:.3}, {cy:.3}), expected ({ex:.3}, {ey:.3})"
+                );
+            }
+        }
     }
 
     /// Needs PDFium; skipped when the library can't be loaded.
     #[test]
     fn opens_and_renders_fixture() {
+        use domain::geometry::ViewTransform;
         let Ok(pdfium) = bind() else {
             eprintln!("PDFium unavailable, skipping");
             return;
@@ -651,10 +788,29 @@ mod tests {
         let bitmap = render(&doc, 1, 100, PageTint::None, true).unwrap();
         assert_eq!((bitmap.width, bitmap.height), (100, 150));
         assert_eq!(bitmap.rgb.len(), 100 * 150 * 3);
+        let cropped = render_transformed(
+            &doc,
+            0,
+            100,
+            PageTint::None,
+            false,
+            ViewTransform {
+                rotation: 90,
+                crop: Some(NormRect {
+                    x: 0.1,
+                    y: 0.1,
+                    width: 0.8,
+                    height: 0.8,
+                }),
+            },
+        )
+        .unwrap();
+        assert_eq!((cropped.width, cropped.height), (100, 67));
+        assert_eq!(cropped.rgb.len(), 100 * 67 * 3);
         assert!(render(&doc, 5, 100, PageTint::None, true).is_err());
         let mut no_recover = |_| Vec::new();
         assert_eq!(
-            search_page(&doc, 0, "anything", None, &mut no_recover).unwrap(),
+            search_page(&doc, 0, "anything", "anything", None, Some(&mut no_recover)).unwrap(),
             Vec::<Vec<_>>::new()
         );
     }

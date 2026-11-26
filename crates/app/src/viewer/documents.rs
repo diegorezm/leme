@@ -158,7 +158,7 @@ impl Viewer {
         self.path = None;
         self.pending = None;
         self.title.clear();
-        self.reset_document_state(window);
+        self.reset_document_state(window, true);
         self.page_sizes.clear();
         self.outline.clear();
         self.labels.clear();
@@ -189,6 +189,13 @@ impl Viewer {
         let Some(path) = self.path.clone() else {
             return;
         };
+        let shown_thumbs = self.shown_thumbs.clone().unwrap_or(0..0);
+        let thumb_cache = self
+            .thumb_cache
+            .iter()
+            .filter(|(page, _)| shown_thumbs.contains(page))
+            .map(|(&page, img)| (page, img.clone()))
+            .collect();
         self.tab_views.retain(|v| v.path != path);
         self.tab_views.insert(
             0,
@@ -196,6 +203,8 @@ impl Viewer {
                 path,
                 zoom: self.zoom,
                 viewport: (window.get_viewport_x(), window.get_viewport_y()),
+                thumbs_viewport_y: window.get_thumbs_viewport_y(),
+                sidebar_width: self.sidebar_width,
                 rotation: self.rotation,
                 crop_margins: self.crop_margins,
                 crop_box: self.crop_box,
@@ -208,6 +217,7 @@ impl Viewer {
                     cache.retain(&self.shown_pages.clone().unwrap_or(0..0));
                     cache
                 },
+                thumb_cache,
             },
         );
         self.tab_views.truncate(KEPT_VIEWS);
@@ -219,17 +229,12 @@ impl Viewer {
         title: String,
         page_sizes: Vec<(f32, f32)>,
         outline: Vec<OutlineItem>,
+        fingerprint: Option<String>,
+        modified: Option<std::time::SystemTime>,
     ) {
-        self.remember_position();
+        self.record_position();
         self.path = self.pending.take();
-        let fp = self
-            .path
-            .as_deref()
-            .and_then(crate::config::file_fingerprint);
-        let modified = self
-            .path
-            .as_deref()
-            .and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
+        let fp = fingerprint;
         let restored = self
             .path
             .as_deref()
@@ -255,7 +260,7 @@ impl Viewer {
         self.current_page = 0;
         self.layout = Layout::default();
         self.thumb_layout = Layout::default();
-        self.reset_document_state(window);
+        self.reset_document_state(window, false);
         self.doc_fingerprint = fp;
         self.loaded_modified = modified;
         if let (Some(path), Some(old)) = (self.path.as_deref(), restored.as_ref()) {
@@ -266,7 +271,7 @@ impl Viewer {
         let (annotations, notes_problem) = self
             .path
             .as_deref()
-            .map(Annotations::load_checked)
+            .map(|p| Annotations::load_checked_with_fingerprint(p, self.doc_fingerprint.as_deref()))
             .unwrap_or_default();
         self.annotations = annotations;
         self.annotations_broken = notes_problem.is_some();
@@ -296,8 +301,20 @@ impl Viewer {
             self.two_up = view.two_up;
             // Same pixels as when the user left: no blank pages, no jump.
             self.cache = view.cache;
+            if view.sidebar_width == self.sidebar_width {
+                self.thumb_cache = view.thumb_cache;
+                window.set_thumbs_viewport_y(view.thumbs_viewport_y);
+            }
             window.set_viewport_x(view.viewport.0);
             window.set_viewport_y(view.viewport.1);
+            // Send the view transform BEFORE relayout queues renders/thumbnails,
+            // because `Request::SetView` clears pending render & thumbnail queues.
+            if !self.view_transform().is_identity() {
+                self.worker.send(Request::SetView {
+                    transform: self.view_transform(),
+                    generation: self.render_gen,
+                });
+            }
             self.relayout(window);
         } else {
             if let Some(ref r) = restored {
@@ -305,7 +322,13 @@ impl Viewer {
                 self.crop_margins = r.view.crop_margins;
                 self.two_up = r.view.two_up;
             }
-            self.relayout(window);
+            if !self.view_transform().is_identity() {
+                self.worker.send(Request::SetView {
+                    transform: self.view_transform(),
+                    generation: self.render_gen,
+                });
+            }
+            self.relayout_geometry(window);
             let reload = self
                 .reload_scroll
                 .take()
@@ -313,19 +336,15 @@ impl Viewer {
             if let Some((_, page, vp_y)) = reload {
                 if page < self.page_sizes.len() {
                     self.scroll_to(window, vp_y);
-                    self.refresh(window);
                 } else {
-                    self.go_to_page(window, page.min(self.page_sizes.len().saturating_sub(1)));
+                    let target = page.min(self.page_sizes.len().saturating_sub(1));
+                    self.scroll_to(window, self.layout.scroll_to(target));
                 }
             } else if let Some(page) = restored.map(|r| r.page) {
-                self.go_to_page(window, page.min(self.page_sizes.len().saturating_sub(1)));
+                let target = page.min(self.page_sizes.len().saturating_sub(1));
+                self.scroll_to(window, self.layout.scroll_to(target));
             }
-        }
-        if !self.view_transform().is_identity() {
-            self.worker.send(Request::SetView {
-                transform: self.view_transform(),
-                generation: self.render_gen,
-            });
+            self.refresh(window);
         }
         if self.crop_margins && self.crop_box.is_none() {
             self.worker.send(Request::DetectCrop {
@@ -333,7 +352,7 @@ impl Viewer {
                 page: self.current_page,
             });
         }
-        self.remember_position();
+        self.remember_position_soon();
         self.update_recent();
         self.update_side_items();
         self.update_progress(window);
@@ -356,9 +375,11 @@ impl Viewer {
         }
     }
 
-    pub(super) fn reset_document_state(&mut self, window: &AppWindow) {
+    pub(super) fn reset_document_state(&mut self, window: &AppWindow, clear_ui: bool) {
         self.cache.clear();
         self.last_request = None;
+        self.shown_pages = None;
+        self.shown_thumbs = None;
         self.thumb_cache.clear();
         self.last_thumb_request = None;
         self.selection = None;
@@ -378,7 +399,11 @@ impl Viewer {
         self.migrated_path = None;
         // A filter set for one document would hide colors in the next.
         self.hidden_colors.clear();
-        self.close_search(window);
+        if clear_ui {
+            self.close_search(window);
+        } else {
+            self.reset_search(window);
+        }
     }
 
     /// The worker couldn't open a document; returns the path it was asked for.
@@ -408,7 +433,7 @@ impl Viewer {
             });
     }
 
-    pub(super) fn record_position(&mut self) -> bool {
+    pub fn record_position(&mut self) -> bool {
         let Some(path) = self.path.clone() else {
             return false;
         };

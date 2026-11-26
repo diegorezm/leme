@@ -124,12 +124,16 @@ struct TabView {
     path: PathBuf,
     zoom: Zoom,
     viewport: (f32, f32),
+    thumbs_viewport_y: f32,
+    sidebar_width: f32,
     rotation: u16,
     crop_margins: bool,
     crop_box: Option<NormRect>,
     two_up: bool,
     /// Only the pages around the viewport, so this stays small.
     cache: PageCache<Image>,
+    /// Only the thumbnails around the sidebar viewport, for instant tab switches.
+    thumb_cache: HashMap<usize, Image>,
 }
 
 /// Memory for rendered pages of the open document: about 18 pages of

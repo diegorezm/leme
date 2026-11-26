@@ -51,13 +51,18 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, path)| {
-                let notes = crate::annotations::Annotations::load(path);
+                let recent = self.viewer.store.recent_for(path);
+                let notes = crate::annotations::Annotations::load_checked_with_fingerprint(
+                    path,
+                    recent.and_then(|r| r.fingerprint.as_deref()),
+                )
+                .0;
                 let (done, total) = (
                     notes.sections.len().min(notes.outline_sections),
                     notes.outline_sections,
                 );
                 let mut detail = Vec::new();
-                if let Some(recent) = self.viewer.store.recent_for(path) {
+                if let Some(recent) = recent {
                     detail.push(trf("page {}", &[&(recent.page + 1)]));
                 }
                 if total > 0 {

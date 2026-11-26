@@ -174,37 +174,78 @@ pub(crate) fn search_chars(chars: &[CharBox], query: &str) -> Vec<Vec<NormRect>>
     matches
 }
 
+/// Cached per-page search metadata so repeated and refined searches skip
+/// loading pages that cannot match and skip character-box scanning on pages
+/// without broken fonts.
+pub(crate) struct PageSearchCache {
+    pub(crate) squashed: String,
+    pub(crate) unreadable: bool,
+}
+
 /// Case-insensitive search of one page, including recovered glyphs when
 /// PDFium maps text objects to blanks. Each match is one or more rects, since
 /// a match can wrap across lines.
-/// `cached` is the page's squashed text: when known, pages without the
-/// query are skipped without loading them; when unknown, it is filled in.
+/// `cached` is the page's squashed text and unreadable-font flag: when known,
+/// pages without the query are skipped without loading them, and readable
+/// pages go straight to PDFium's native search.
 pub(crate) fn search_page(
     doc: &PdfDocument,
     page: usize,
     query: &str,
-    cached: Option<&mut Option<String>>,
-    recover: &mut impl FnMut(usize) -> Vec<Glyph>,
+    squashed_query: &str,
+    cached: Option<&mut Option<PageSearchCache>>,
+    recover: Option<&mut impl FnMut(usize) -> Vec<Glyph>>,
 ) -> Result<Vec<Vec<NormRect>>, PdfiumError> {
-    if let Some(Some(text)) = cached.as_deref() {
-        if !text.contains(&squash(query)) {
+    let mut known_unreadable = None;
+    if let Some(Some(entry)) = cached.as_deref() {
+        if !entry.squashed.contains(squashed_query) {
             return Ok(Vec::new());
         }
+        known_unreadable = Some(entry.unreadable);
     }
     let pdf_page = load_page(doc, page)?;
     let size = (pdf_page.width().value, pdf_page.height().value);
     let text = pdf_page.text()?;
-    let (boxes, unreadable) = char_boxes_of(&pdf_page, &text);
-    if unreadable {
-        let merged = merge_recovered(boxes, recover(page));
-        if let Some(slot @ None) = cached {
-            let full: String = merged.iter().map(|b| b.c).collect();
-            *slot = Some(squash(&full));
+    match (known_unreadable, recover) {
+        (Some(true), Some(recover)) => {
+            let (boxes, _) = char_boxes_of(&pdf_page, &text);
+            let merged = merge_recovered(boxes, recover(page));
+            return Ok(search_chars(&merged, query));
         }
-        return Ok(search_chars(&merged, query));
-    }
-    if let Some(slot @ None) = cached {
-        *slot = Some(squash(&text.all()));
+        (None, Some(recover)) => {
+            let (boxes, unreadable) = char_boxes_of(&pdf_page, &text);
+            if unreadable {
+                let merged = merge_recovered(boxes, recover(page));
+                if let Some(slot @ None) = cached {
+                    let full: String = merged.iter().map(|b| b.c).collect();
+                    *slot = Some(PageSearchCache {
+                        squashed: squash(&full),
+                        unreadable: true,
+                    });
+                }
+                return Ok(search_chars(&merged, query));
+            }
+            if let Some(slot @ None) = cached {
+                let squashed: String = boxes
+                    .iter()
+                    .map(|b| b.c)
+                    .filter(|c| c.is_alphanumeric())
+                    .flat_map(char::to_lowercase)
+                    .collect();
+                *slot = Some(PageSearchCache {
+                    squashed,
+                    unreadable: false,
+                });
+            }
+        }
+        (Some(false), _) | (_, None) => {
+            if let Some(slot @ None) = cached {
+                *slot = Some(PageSearchCache {
+                    squashed: squash(&text.all()),
+                    unreadable: false,
+                });
+            }
+        }
     }
     let search = text.search(query, &PdfSearchOptions::new())?;
     let matches = search
@@ -226,19 +267,26 @@ pub(crate) fn relocate(
     page_count: usize,
     items: &[(u64, String, usize)],
 ) -> Vec<(u64, usize, Vec<NormRect>)> {
-    let mut texts: Vec<Option<String>> = vec![None; page_count];
+    let mut texts: Vec<Option<PageSearchCache>> = (0..page_count).map(|_| None).collect();
     let mut found = Vec::new();
-    let mut no_recover = |_| Vec::new();
     for (id, text, old_page) in items {
         let query = text.split_whitespace().collect::<Vec<_>>().join(" ");
         if query.is_empty() {
             continue;
         }
+        let squashed = squash(&query);
         let mut pages: Vec<usize> = (0..page_count).collect();
         pages.sort_by_key(|p| p.abs_diff(*old_page));
         let hit = pages.into_iter().find_map(|page| {
-            let matches =
-                search_page(doc, page, &query, texts.get_mut(page), &mut no_recover).ok()?;
+            let matches = search_page(
+                doc,
+                page,
+                &query,
+                &squashed,
+                texts.get_mut(page),
+                None::<&mut fn(usize) -> Vec<Glyph>>,
+            )
+            .ok()?;
             matches.into_iter().next().map(|rects| (page, rects))
         });
         if let Some((page, rects)) = hit {

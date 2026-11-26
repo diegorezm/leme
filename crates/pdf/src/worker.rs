@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
 
-use domain::config::{cache_dir, fnv1a, write_atomic_bytes};
+use domain::config::{cache_dir, file_fingerprint, fnv1a, write_atomic_bytes};
 use domain::geometry::ViewTransform;
 
 use crate::*;
@@ -98,6 +98,8 @@ pub(crate) struct OpenDoc<'a> {
     pub(crate) path: PathBuf,
     /// To notice the file changing on disk.
     pub(crate) modified: Option<std::time::SystemTime>,
+    /// Fast file fingerprint computed once on open off the UI thread.
+    pub(crate) fingerprint: Option<String>,
     pub(crate) doc: PdfDocument<'a>,
     pub(crate) page_sizes: Vec<(f32, f32)>,
     pub(crate) outline: Vec<OutlineItem>,
@@ -109,10 +111,10 @@ pub(crate) struct OpenDoc<'a> {
     pub(crate) detected_crop: Option<Option<NormRect>>,
     /// For text the PDF draws but maps to nothing; loaded on first need.
     pub(crate) recovery: Recovering,
-    /// Each page's text, squashed (see `squash`), once a search has read
-    /// it. Later searches skip pages that can't match without asking
-    /// PDFium. A few KB per page.
-    pub(crate) texts: Vec<Option<String>>,
+    /// Each page's squashed text and unreadable-font flag, once a search has
+    /// read it. Later searches skip pages that can't match without asking
+    /// PDFium, and skip character-box scans on readable pages.
+    pub(crate) texts: Vec<Option<PageSearchCache>>,
 }
 
 pub(crate) fn modified(path: &Path) -> Option<std::time::SystemTime> {
@@ -128,6 +130,7 @@ pub(crate) const CHAR_CACHE_PAGES: usize = 8;
 pub(crate) struct SearchJob {
     pub(crate) id: u64,
     pub(crate) query: String,
+    pub(crate) squashed_query: String,
     /// Pages to search, ascending.
     pub(crate) pages: Vec<usize>,
     /// Index into `pages` of the next page to search.
@@ -149,6 +152,7 @@ impl SearchJob {
         previous: Option<SearchJob>,
     ) -> Self {
         let from = from.min(page_count);
+        let squashed_query = squash(&query);
         let pages = match previous {
             Some(prev) if refines(&prev.query, &query) => {
                 let mut pages = prev.hits;
@@ -160,6 +164,7 @@ impl SearchJob {
         Self {
             id,
             query,
+            squashed_query,
             pages,
             next: 0,
             hits: Vec::new(),
@@ -354,6 +359,8 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                             path,
                             page_sizes: open.page_sizes.clone(),
                             outline: open.outline.clone(),
+                            fingerprint: open.fingerprint.clone(),
+                            modified: open.modified,
                         });
                     }
                     continue;
@@ -361,6 +368,7 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                 match open(&pdfium, &path, password.as_deref()) {
                     Ok((doc, page_sizes)) => {
                         let outline = outline(&doc);
+                        let fingerprint = file_fingerprint(&path);
                         labels_due = true;
                         documents.push_front(OpenDoc {
                             path: path.clone(),
@@ -369,8 +377,9 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                             detected_crop: None,
                             recovery: Recovering::Unloaded,
                             modified: stamp,
+                            fingerprint: fingerprint.clone(),
                             doc,
-                            texts: vec![None; page_sizes.len()],
+                            texts: (0..page_sizes.len()).map(|_| None).collect(),
                             page_sizes: page_sizes.clone(),
                             outline: outline.clone(),
                         });
@@ -381,6 +390,8 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
                             path,
                             page_sizes,
                             outline,
+                            fingerprint,
+                            modified: stamp,
                         });
                     }
                     Err(PdfiumError::PdfiumLibraryInternalError(
@@ -658,7 +669,14 @@ pub(crate) fn run<B>(rx: Receiver<Request>, convert: fn(Bitmap) -> B, on_event: 
         } else if let Some(job) = &mut search {
             if let Some(page) = job.next_page() {
                 let text = texts.get_mut(page);
-                if let Ok(matches) = search_page(doc, page, &job.query, text, &mut recover) {
+                if let Ok(matches) = search_page(
+                    doc,
+                    page,
+                    &job.query,
+                    &job.squashed_query,
+                    text,
+                    Some(&mut recover),
+                ) {
                     if !matches.is_empty() {
                         job.hits.push(page);
                         on_event(Event::SearchHits {

@@ -18,28 +18,52 @@ pub(crate) fn render(
     render_transformed(doc, page, width_px, tint, forms, ViewTransform::default())
 }
 
-fn render_raw_rgbx(
-    pdf_page: &PdfPage,
-    width: u32,
-    height: u32,
-    forms: bool,
-) -> Result<Vec<u8>, PdfiumError> {
-    let (Ok(w_px), Ok(h_px)) = (Pixels::try_from(width), Pixels::try_from(height)) else {
-        return Err(PdfiumError::ImageSizeOutOfBounds);
+/// Computes `(out_w, out_h, full_w, full_h, start_x, start_y, rotation)` for
+/// rendering a page with optional crop and clockwise rotation directly into an
+/// `out_w x out_h` bitmap via PDFium.
+pub(crate) fn render_geometry(
+    (w, h): (f32, f32),
+    width_px: u32,
+    transform: ViewTransform,
+) -> (u32, u32, i32, i32, i32, i32, u16) {
+    let rot = ViewTransform::normalize_rotation(transform.rotation);
+    let (disp_w, disp_h) = transform.display_size((w, h));
+    let out_w = capped_width(width_px, (disp_w, disp_h));
+    let out_h = if disp_w > 0.0 {
+        ((disp_h * (out_w as f32 / disp_w)).round() as u32).max(1)
+    } else {
+        1
     };
-    let mut buffer = vec![0u8; width as usize * height as usize * 4];
-    {
-        let mut bitmap = PdfBitmap::from_bytes(w_px, h_px, PdfBitmapFormat::BGRx, &mut buffer)?;
-        let config = PdfRenderConfig::new()
-            .set_target_width(w_px)
-            .set_reverse_byte_order(true)
-            .render_form_data(forms);
-        pdf_page.render_into_bitmap_with_config(&mut bitmap, &config)?;
-    }
-    Ok(buffer)
+    let (cx, cy, cw, ch) = match transform.crop {
+        Some(c) if c.width > 0.0 && c.height > 0.0 => (
+            c.x.clamp(0.0, 1.0),
+            c.y.clamp(0.0, 1.0),
+            c.width.clamp(0.01, 1.0),
+            c.height.clamp(0.01, 1.0),
+        ),
+        _ => (0.0, 0.0, 1.0, 1.0),
+    };
+    // Crop rect mapped into rotated full-page normalized coordinates.
+    let (vx, vy, vw, vh) = match rot {
+        90 => ((1.0 - (cy + ch)).max(0.0), cx, ch, cw),
+        180 => (
+            (1.0 - (cx + cw)).max(0.0),
+            (1.0 - (cy + ch)).max(0.0),
+            cw,
+            ch,
+        ),
+        270 => (cy, (1.0 - (cx + cw)).max(0.0), ch, cw),
+        _ => (cx, cy, cw, ch),
+    };
+    let full_w = ((out_w as f32 / vw).round() as i32).max(out_w as i32);
+    let full_h = ((out_h as f32 / vh).round() as i32).max(out_h as i32);
+    let off_x = ((vx * full_w as f32).round() as i32).clamp(0, full_w - out_w as i32);
+    let off_y = ((vy * full_h as f32).round() as i32).clamp(0, full_h - out_h as i32);
+    (out_w, out_h, full_w, full_h, -off_x, -off_y, rot)
 }
 
-/// Renders a page with optional visual crop and clockwise rotation.
+/// Renders a page with optional visual crop and clockwise rotation directly
+/// into a single `out_w x out_h` buffer via PDFium, then packs to RGB in place.
 pub(crate) fn render_transformed(
     doc: &PdfDocument,
     page: usize,
@@ -58,7 +82,18 @@ pub(crate) fn render_transformed(
         } else {
             1
         };
-        let mut buffer = render_raw_rgbx(&pdf_page, width, height, forms)?;
+        let (Ok(w_px), Ok(h_px)) = (Pixels::try_from(width), Pixels::try_from(height)) else {
+            return Err(PdfiumError::ImageSizeOutOfBounds);
+        };
+        let mut buffer = vec![0u8; width as usize * height as usize * 4];
+        {
+            let mut bitmap = PdfBitmap::from_bytes(w_px, h_px, PdfBitmapFormat::BGRx, &mut buffer)?;
+            let config = PdfRenderConfig::new()
+                .set_target_width(w_px)
+                .set_reverse_byte_order(true)
+                .render_form_data(forms);
+            pdf_page.render_into_bitmap_with_config(&mut bitmap, &config)?;
+        }
         pack_rgb(&mut buffer, &tint_lut(tint));
         return Ok(Bitmap {
             width,
@@ -67,84 +102,37 @@ pub(crate) fn render_transformed(
         });
     }
 
-    let (disp_w, disp_h) = transform.display_size((w, h));
-    let out_w = capped_width(width_px, (disp_w, disp_h));
-    let out_h = if disp_w > 0.0 {
-        ((disp_h * (out_w as f32 / disp_w)).round() as u32).max(1)
-    } else {
-        1
+    let (out_w, out_h, full_w, full_h, start_x, start_y, rot) =
+        render_geometry((w, h), width_px, transform);
+    let (Ok(w_px), Ok(h_px)) = (Pixels::try_from(out_w), Pixels::try_from(out_h)) else {
+        return Err(PdfiumError::ImageSizeOutOfBounds);
     };
-    let crop_w_frac = transform
-        .crop
-        .filter(|c| c.width > 0.0 && c.height > 0.0)
-        .map_or(1.0, |c| c.width);
-    let desired_raw_w = if matches!(
-        ViewTransform::normalize_rotation(transform.rotation),
-        90 | 270
-    ) {
-        ((out_h as f32) / crop_w_frac).round() as u32
-    } else {
-        ((out_w as f32) / crop_w_frac).round() as u32
-    };
-    let raw_w = capped_width(desired_raw_w, (w, h));
-    let raw_h = if w > 0.0 {
-        ((h * (raw_w as f32 / w)).round() as u32).max(1)
-    } else {
-        1
-    };
-    let buffer = render_raw_rgbx(&pdf_page, raw_w, raw_h, forms)?;
-    let (width, height, rgb) =
-        pack_rgb_transformed(&buffer, raw_w, raw_h, &tint_lut(tint), transform);
-    Ok(Bitmap { width, height, rgb })
-}
-
-/// Crops, rotates, and packs an RGBx buffer into tightly packed RGB bytes.
-pub(crate) fn pack_rgb_transformed(
-    buffer: &[u8],
-    raw_w: u32,
-    raw_h: u32,
-    luts: &[[u8; 256]; 3],
-    transform: ViewTransform,
-) -> (u32, u32, Vec<u8>) {
-    let rw = raw_w.max(1);
-    let rh = raw_h.max(1);
-    let (x0, y0, cw, ch) = match transform.crop {
-        Some(c) if c.width > 0.0 && c.height > 0.0 => {
-            let x0 = (c.x * rw as f32).floor().clamp(0.0, (rw - 1) as f32) as u32;
-            let y0 = (c.y * rh as f32).floor().clamp(0.0, (rh - 1) as f32) as u32;
-            let x1 = ((c.x + c.width) * rw as f32)
-                .ceil()
-                .clamp((x0 + 1) as f32, rw as f32) as u32;
-            let y1 = ((c.y + c.height) * rh as f32)
-                .ceil()
-                .clamp((y0 + 1) as f32, rh as f32) as u32;
-            (x0, y0, (x1 - x0).max(1), (y1 - y0).max(1))
-        }
-        _ => (0, 0, rw, rh),
-    };
-    let rot = ViewTransform::normalize_rotation(transform.rotation);
-    let (out_w, out_h) = if matches!(rot, 90 | 270) {
-        (ch, cw)
-    } else {
-        (cw, ch)
-    };
-    let mut rgb = vec![0u8; out_w as usize * out_h as usize * 3];
-    for dy in 0..out_h {
-        for dx in 0..out_w {
-            let (sx, sy) = match rot {
-                90 => (x0 + dy, y0 + ch - 1 - dx),
-                180 => (x0 + cw - 1 - dx, y0 + ch - 1 - dy),
-                270 => (x0 + cw - 1 - dy, y0 + dx),
-                _ => (x0 + dx, y0 + dy),
-            };
-            let src = (sy as usize * rw as usize + sx as usize) * 4;
-            let dst = (dy as usize * out_w as usize + dx as usize) * 3;
-            rgb[dst] = luts[0][buffer[src] as usize];
-            rgb[dst + 1] = luts[1][buffer[src + 1] as usize];
-            rgb[dst + 2] = luts[2][buffer[src + 2] as usize];
-        }
+    let mut buffer = vec![255u8; out_w as usize * out_h as usize * 4];
+    {
+        let mut bitmap = PdfBitmap::from_bytes(w_px, h_px, PdfBitmapFormat::BGRx, &mut buffer)?;
+        let pdf_rot = match rot {
+            90 => PdfPageRenderRotation::Degrees90,
+            180 => PdfPageRenderRotation::Degrees180,
+            270 => PdfPageRenderRotation::Degrees270,
+            _ => PdfPageRenderRotation::None,
+        };
+        // `FPDF_RenderPageBitmap` (used when `render_form_data(true)`) applies
+        // `start_x`/`start_y`, `fixed_size`, and `rotate` natively and clips
+        // cropped margins before rasterizing.
+        let config = PdfRenderConfig::new()
+            .set_fixed_size(full_w, full_h)
+            .set_origin(start_x, start_y)
+            .rotate(pdf_rot, false)
+            .set_reverse_byte_order(true)
+            .render_form_data(true);
+        pdf_page.render_into_bitmap_with_config(&mut bitmap, &config)?;
     }
-    (out_w, out_h, rgb)
+    pack_rgb(&mut buffer, &tint_lut(tint));
+    Ok(Bitmap {
+        width: out_w,
+        height: out_h,
+        rgb: buffer,
+    })
 }
 
 /// Estimates a union content bounding box across sampled pages of `doc` so
@@ -178,22 +166,43 @@ pub(crate) fn detect_crop(
         let Ok(bmp) = render(doc, page, 160, PageTint::None, false) else {
             continue;
         };
-        if bmp.width == 0 || bmp.height == 0 {
+        let bw = bmp.width as usize;
+        let bh = bmp.height as usize;
+        if bw == 0 || bh == 0 {
             continue;
         }
-        let wf = bmp.width as f32;
-        let hf = bmp.height as f32;
-        for y in 0..bmp.height {
-            for x in 0..bmp.width {
-                let idx = (y as usize * bmp.width as usize + x as usize) * 3;
-                let [r, g, b] = [bmp.rgb[idx], bmp.rgb[idx + 1], bmp.rgb[idx + 2]];
+        let mut p_min_x = bw;
+        let mut p_min_y = bh;
+        let mut p_max_x = 0usize;
+        let mut p_max_y = 0usize;
+        let row_bytes = bw * 3;
+        for (y, row) in bmp.rgb.chunks_exact(row_bytes).enumerate() {
+            let mut row_hit = false;
+            for (x, &[r, g, b]) in row.as_chunks::<3>().0.iter().enumerate() {
                 if r < 245 || g < 245 || b < 245 {
-                    min_x = min_x.min(x as f32 / wf);
-                    min_y = min_y.min(y as f32 / hf);
-                    max_x = max_x.max((x + 1) as f32 / wf);
-                    max_y = max_y.max((y + 1) as f32 / hf);
+                    row_hit = true;
+                    if x < p_min_x {
+                        p_min_x = x;
+                    }
+                    if x + 1 > p_max_x {
+                        p_max_x = x + 1;
+                    }
                 }
             }
+            if row_hit {
+                if y < p_min_y {
+                    p_min_y = y;
+                }
+                p_max_y = y + 1;
+            }
+        }
+        if p_max_x > p_min_x && p_max_y > p_min_y {
+            let wf = bw as f32;
+            let hf = bh as f32;
+            min_x = min_x.min(p_min_x as f32 / wf);
+            min_y = min_y.min(p_min_y as f32 / hf);
+            max_x = max_x.max(p_max_x as f32 / wf);
+            max_y = max_y.max(p_max_y as f32 / hf);
         }
     }
     if max_x <= min_x || max_y <= min_y {

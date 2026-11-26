@@ -102,13 +102,22 @@ impl Annotations {
     }
 
     pub fn load_checked(doc: &Path) -> (Self, Option<String>) {
+        Self::load_checked_with_fingerprint(doc, None)
+    }
+
+    /// Loads annotations for `doc`, reusing `fingerprint` when already known so
+    /// the PDF does not need to be re-read to check for moved annotation files.
+    pub fn load_checked_with_fingerprint(
+        doc: &Path,
+        fingerprint: Option<&str>,
+    ) -> (Self, Option<String>) {
         let Some(path) = file_for(doc) else {
             return (Self::default(), None);
         };
         match fs::read_to_string(&path) {
             Ok(text) => Self::parse_checked(&text),
             Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                if let Some(moved) = moved_file_for(doc) {
+                if let Some(moved) = moved_file_for(doc, fingerprint) {
                     if let Ok(text) = fs::read_to_string(moved) {
                         return Self::parse_checked(&text);
                     }
@@ -391,10 +400,21 @@ fn index_file() -> Option<PathBuf> {
     Some(data_dir()?.join("annotations").join("fingerprints.txt"))
 }
 
-fn moved_file_for(doc: &Path) -> Option<PathBuf> {
+fn moved_file_for(doc: &Path, known_fp: Option<&str>) -> Option<PathBuf> {
     let dir = data_dir()?.join("annotations");
-    let fp = file_fingerprint(doc)?;
-    lookup_fingerprint(&dir.join("fingerprints.txt"), &dir, &fp)
+    let index = dir.join("fingerprints.txt");
+    if !index.is_file() {
+        return None;
+    }
+    let owned;
+    let fp = match known_fp {
+        Some(fp) if !fp.is_empty() => fp,
+        _ => {
+            owned = file_fingerprint(doc)?;
+            &owned
+        }
+    };
+    lookup_fingerprint(&index, &dir, fp)
 }
 
 fn lookup_fingerprint(index: &Path, dir: &Path, fp: &str) -> Option<PathBuf> {

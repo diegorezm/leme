@@ -281,7 +281,7 @@ impl Viewer {
             window.set_viewport_x(window.get_viewport_x() - dx);
             self.clamp_x(window);
         }
-        self.refresh(window);
+        self.scrolled(window);
     }
 
     pub(super) fn clamp_x(&self, window: &AppWindow) {

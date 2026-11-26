@@ -66,8 +66,17 @@ impl Viewer {
     }
 
     pub fn relayout(&mut self, window: &AppWindow) {
-        if self.page_sizes.is_empty() {
+        if !self.relayout_geometry(window) {
             return;
+        }
+        self.refresh(window);
+    }
+
+    /// Recomputes page and thumbnail layout geometry without refreshing models
+    /// or queuing renders yet. Returns false when no document is open.
+    pub(super) fn relayout_geometry(&mut self, window: &AppWindow) -> bool {
+        if self.page_sizes.is_empty() {
+            return false;
         }
         let old_height = self.layout.content_height();
         let top = -window.get_viewport_y();
@@ -90,7 +99,7 @@ impl Viewer {
             self.thumb_layout = Layout::new(&sizes, self.sidebar_width, 1.0);
             window.set_thumbs_content_height(self.thumb_layout.content_height());
         }
-        self.refresh(window);
+        true
     }
 
     /// Updates visible pages, the page counter, and render requests after
@@ -160,7 +169,7 @@ impl Viewer {
 
     pub(super) fn update_thumbs(&mut self, window: &AppWindow, force: bool) {
         let count = self.thumb_layout.page_count();
-        if count == 0 || !window.get_sidebar_visible() {
+        if count == 0 || !window.get_sidebar_visible() || self.side_panel != SidePanel::Thumbs {
             return;
         }
         let top = -window.get_thumbs_viewport_y();
@@ -179,12 +188,14 @@ impl Viewer {
         if self.last_thumb_request.as_ref() != Some(&preload) {
             let width = self.thumb_layout.rect(0).map_or(1.0, |r| r.width);
             let width_px = (width * window.window().scale_factor()).round().max(1.0) as u32;
-            let pages = visible
+            let pages: Vec<usize> = visible
                 .clone()
                 .chain(preload.clone().filter(|p| !visible.contains(p)))
                 .filter(|p| !self.thumb_cache.contains_key(p))
                 .collect();
-            self.worker.send(Request::Thumbnails { pages, width_px });
+            if !pages.is_empty() || self.last_thumb_request.is_some() {
+                self.worker.send(Request::Thumbnails { pages, width_px });
+            }
             self.last_thumb_request = Some(preload);
         }
     }
